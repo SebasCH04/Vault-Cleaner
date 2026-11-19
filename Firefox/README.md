@@ -1,6 +1,6 @@
 # Vault Cleaner · Destiny 2
 
-A Firefox extension with an inventory panel inside DIM and an offline interactive demo. Cleanup classifies each exact weapon copy by its highest confirmed popularity rank with the perks it already has. The interface is in English.
+A Firefox extension with Weapons and Armor panels inside DIM and an offline interactive demo. Weapons use each exact copy's highest confirmed light.gg popularity rank. Armor cleanup identifies verified duplicates while preserving distinct rolls, tuning options and sets. The interface is in English.
 
 ## Install or update
 
@@ -8,7 +8,7 @@ A Firefox extension with an inventory panel inside DIM and an offline interactiv
 2. Open `about:debugging#/runtime/this-firefox` in Firefox.
 3. Remove the previous temporary Vault Cleaner extension, if installed.
 4. Click **Load Temporary Add-on** and select `manifest.json` in the extracted folder.
-5. Check version **0.1.11** in Firefox's extension details, then reload **DIM and light.gg** to replace their previous scripts. The panel itself does not show a version badge.
+5. Check version **0.2.0** in Firefox's extension details, then reload **DIM and light.gg** to replace their previous scripts. The panel itself does not show a version badge.
 6. Open DIM and click **Vault Cleaner** in the bottom-right corner.
 
 Temporary Firefox extensions must be loaded again after restarting Firefox. No Aegis extension is required. This package does not bundle Aegis.
@@ -41,6 +41,26 @@ Both options respect the destination's actual occupied spaces and each slot's ca
 
 Changing batch sizing preserves your selection. Changing transfer mode clears it. Switching from Total to Per slot clamps a limit above 9 to 9.
 
+Armor uses five slots: Helmet, Arms, Chest, Legs and Class Item. Per slot allows up to 9 per slot (45 total); Total has one limit from 1 to 45. Both modes respect actual free spaces. Armor must go to a character of the matching class; pieces from another class are skipped. Changing back to Weapons clamps a total limit above 27.
+
+## Armor cleanup
+
+Open **Armor** beside **Weapons**. Armor does not need light.gg syncing. Counts cover armor only, across the vault and characters. **Vault duplicates** counts only copies eligible for duplicate cleanup. Filters cover class, slot, set, archetype and tier; search also matches set and archetype names.
+
+- **Duplicates:** equivalent or strictly outclassed vault copies with a retained replacement. Use **Compare** to see all six base stats and the exact copy that remains.
+- **Keep:** distinct stat distributions, archetypes, tuning/mod options, set roles and highest-Power copies.
+- **Review:** legacy armor or incomplete comparison metadata. These never enter duplicate cleanup.
+- **Protected:** locked, favorite/keep/archive, loadout, exotic, equipped, unknown-state, postmaster or non-transferable copies.
+- **All:** the whole armor inventory for the active filters.
+
+The first implementation deliberately compares matching item definitions, class, slot, set, archetype, tier, non-zero stat pattern and available tuning/mod features. It reads DIM's base stats, excluding equipped mods and current masterwork bonuses. A replacement must have equal or higher values in **every** base stat, no lower Power, and at least as much existing masterwork investment. Matching Armor 3.0 zero-stat patterns ensure their full-masterwork potential remains comparable. A higher total alone is insufficient. Unique tuning and mod access remain separate. It is not a full build optimizer.
+
+Set cards count distinct slots across the vault and characters, separately for each class. Five helmets do not form a complete set. Duplicate cleanup retains all owned slot coverage, including incomplete sets and alternate slots for exotic use. Set cards describe possible 2/4-piece bonuses, not currently active equipment. Event-selector/legacy pieces without identified set metadata remain in Review; their bonuses are not guessed.
+
+**Prepare batch** rechecks the selected exact copies against fresh DIM data. Each armor replacement is frozen in the reviewed plan, stays outside that batch, and is checked again before every native STORE. If it disappears or changes, transfer stops. A previously transferred duplicate cannot silently substitute for that frozen reference.
+
+Armor **Manual transfer** explicitly bypasses duplicate, set and cleanup protections. It allows you to select Keep, Review and protected copies, while preserving locks and tags and still checking class, equipped state, location and capacity. Review your manual choices before sending. Dismantling remains manual in Destiny 2.
+
 ## Transfer modes
 
 ### Cleanup by maximum
@@ -61,9 +81,9 @@ Manual transfer still excludes non-weapons, copies outside the vault, postmaster
 
 **Refresh inventory** now invokes DIM’s native inventory refresh and waits for it to complete; it does not just reread cached data. The panel follows DIM inventory changes automatically, updates after each confirmed transfer, and requests a refresh when you return to its visible tab after working in-game. If cached data reports that all selected slots are full, preparation refreshes DIM once and recalculates before rejecting the batch. A genuinely full slot still prevents transfer.
 
-Space accounting follows DIM’s actual item locations, includes equipped weapons, and excludes postmaster/other locations. After dismantling, Bungie and DIM must publish the updated inventory before those spaces can be used.
+Space accounting follows DIM’s actual item locations, includes equipped weapons and armor in their respective slots, and excludes postmaster/other locations. After dismantling, Bungie and DIM must publish the updated inventory before those spaces can be used.
 
-The DIM bridge verifies exact instance IDs, account state, protections, target capacity and destination ownership. It uses DIM's native STORE action with equip disabled. Prepared plans expire after two minutes. **Stop** interrupts a batch between weapons; a request already sent may finish. Refresh DIM before retrying after an interrupted transfer.
+The DIM bridge verifies exact instance IDs, account state, protections, target capacity and destination ownership. It uses DIM's native STORE action with equip disabled. Prepared plans expire after two minutes. **Stop** interrupts a batch between items; a request already sent may finish. Refresh DIM before retrying after an interrupted transfer.
 
 The extension does not dismantle, equip, unlock or change perks. **View in DIM** searches the selected exact instance IDs.
 
@@ -79,10 +99,12 @@ Diagnostics contain counters and limited marker/attribute samples, with no compl
 
 ## Offline demo
 
-Open `Vault-Cleaner-demo.html` from the ZIP. It contains sample weapons and simulates transfers without connecting to an account. It lets you try both transfer modes, both batch-sizing options, rank filters, selection and review.
+Open `Vault-Cleaner-demo.html` from the ZIP. It contains sample weapons and armor and simulates transfers without connecting to an account. Try the Armor tab, sets, archetype filters, Compare, duplicate recommendations, both transfer modes, sizing options and review.
 
 ## Development checks
 
-Run `node --test tests/core.test.cjs`. Browser fixtures require Playwright and a compatible Chromium binary; the included browser tests use `@sparticuz/chromium`.
+Run `node --test tests/core.test.cjs tests/armor.test.cjs`. Browser fixtures require Playwright and a compatible Chromium binary; the included browser tests use `@sparticuz/chromium`. `tests/armor-browser.test.cjs` covers Armor UI and DIM-shaped armor metadata and native actions.
+
+Armor checks cover stable retained references, matching features, stat-wise dominance, distinct archetypes/tertiary stats/tuning/tier, incomplete metadata, legacy armor, exotic/loadout/lock protections, Power and masterwork investment, full/incomplete set coverage, class restrictions, 45 per-slot/total sizing, reserves, explicit manual selection, normalized DIM sockets and stats, missing-replacement blocking, exact STORE without EQUIP and confirmed capacity updates.
 
 Checks cover search with DIM-like global keyboard shortcuts, text editing and keyboard navigation, unchanged DIM shortcuts outside the panel, vault-only rank counts, updates during transfers, DIM store subscriptions, returning after in-game dismantling, automatic retry of cached-full capacity, unchanged/failed refreshes, real-full blocking, actual item locations, maximum-rank protections, exact IDs, per-slot and total batches, occupied/full slots, optional reserves, manual selection, mode changes, the responsive footer, Best Available capture, incremental scanner performance, seven-card numeric-perk-asset regression (five A and two B copies), genuine multi-copy rejection, and DIM STORE without EQUIP. Browser fixtures simulate DIM and light.gg; they do not validate a live Bungie transfer.

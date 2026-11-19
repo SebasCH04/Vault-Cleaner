@@ -40,6 +40,49 @@
       }, 120);
     });
   }
+  function armorData(item) {
+    const sockets = item.sockets?.allSockets || [];
+    const category = s=>s.plugged?.plugDef?.plug?.plugCategoryHash;
+    const archetype = sockets.find(s=>category(s) === 778194869)?.plugged?.plugDef;
+    const masterwork = sockets.find(s=>category(s) === 2198080209);
+    const tuning = sockets.find(s=>s.visibleInGame && category(s) === 3481777685);
+    const base = C.ARMOR_STATS.map(hash=>item.stats?.find(s=>s.statHash === hash)?.base);
+    const mwStats = C.ARMOR_STATS.map(hash=>masterwork?.plugged?.stats?.[hash]?.value).filter(Number.isInteger);
+    const mwInvestments = masterwork?.plugged?.plugDef?.investmentStats;
+    const masterworkLevel = Number.isInteger(item.masterworkInfo?.tier) ? item.masterworkInfo.tier :
+      Array.isArray(mwInvestments) ? (mwInvestments.find(s=>s.isConditionallyActive && C.ARMOR_STATS.includes(s.statTypeHash))?.value || 0) :
+      mwStats.length ? Math.max(0,...mwStats) : null;
+    const tuningOptions = (tuning?.reusablePlugItems || []).map(p=>p.plugItemHash).filter(Number.isInteger).sort((a,b)=>a-b);
+    // Compare mod access and intrinsic perks, excluding cosmetic choices and
+    // the current masterwork level. Tuning uses every available option, not
+    // merely the currently selected mod.
+    const features = sockets.filter(s=> {
+      const def = s.plugged?.plugDef;
+      return category(s) !== 2198080209 && category(s) !== 778194869 && category(s) !== 3481777685 &&
+        !/skin|shader|ornament|tracker|memento/i.test(def?.plug?.plugCategoryIdentifier || '');
+    }).map(s=> {
+      const def = s.plugged?.plugDef, sd = s.socketDefinition || {};
+      return [s.socketIndex,Boolean(s.visibleInGame),sd.socketTypeHash || 0,sd.reusablePlugSetHash || 0,
+        sd.randomizedPlugSetHash || 0,def?.plug?.plugCategoryHash || 0,
+        (s.reusablePlugItems || []).map(p=>p.plugItemHash).sort((a,b)=>a-b),s.isPerk ? def?.hash || 0 : 0];
+    });
+    const classType = Number.isInteger(item.classType) ? item.classType : null;
+    const tier = Number.isInteger(item.tier) ? item.tier : null;
+    const setHash = item.setBonus?.hash || null;
+    const complete = Boolean(masterwork && archetype?.hash && setHash && [0,1,2].includes(classType) &&
+      tier >= 1 && tier <= 5 && base.every(v=>Number.isInteger(v) && v >= 0) &&
+      Number.isFinite(item.power) && Number.isInteger(masterworkLevel) && masterworkLevel >= 0 && masterworkLevel <= 5 &&
+      (!tuning || tuningOptions.length) && sockets.every(s=>!s.visibleInGame || s.plugged?.plugDef?.plug));
+    const bonuses = item.setBonus?.setPerks || [];
+    return { classType, className:C.CLASS_NAMES[classType] || 'Unknown class', tier,
+      setHash,setName:item.setBonus?.displayProperties?.name || '',
+      setBonuses:bonuses.map(p=>({pieces:p.requiredSetCount,hash:p.sandboxPerkHash})),
+      archetypeHash:archetype?.hash || null,archetypeName:archetype?.displayProperties?.name || '',
+      generation:masterwork ? 3 : 2,base:base.map(v=>Number.isInteger(v) ? v : null),
+      potential:base.map(v=>Number.isInteger(v) ? (masterwork && v === 0 ? 5 : v) : null),
+      masterwork:masterworkLevel,
+      tuningOptions,features:JSON.stringify([features,tuningOptions]),complete };
+  }
   function snapshot() {
     const state = getStore().getState();
     const stores = state.inventory.stores;
@@ -59,11 +102,12 @@
     const native = state.inventory.profileResponse?.characterLoadouts?.data;
     for (const char of Object.values(native || {})) (char.loadouts || []).forEach(protect);
     for (const char of Object.values(state.inGameLoadouts?.loadouts || {})) char.forEach(protect);
-    const rows = stores.flatMap(store => store.items.filter(i => i.bucket?.inWeapons).map(i => ({
+    const rows = stores.flatMap(store => store.items.filter(i => i.bucket?.inWeapons || i.bucket?.inArmor).map(i => ({
       id: String(i.id), hash: i.hash, name: i.name, type: i.typeName, icon: i.icon,
       bucket: String(i.bucket.hash), bucketName: i.bucket.name,
       capacity: i.bucket.capacity, owner: store.isVault ? 'vault' : String(store.id), ownerName: store.name,
-      locked: i.locked, equipped: i.equipped, weapon: true,
+      locked: i.locked, equipped: i.equipped, weapon: Boolean(i.bucket.inWeapons), armor:Boolean(i.bucket.inArmor),
+      ...(i.bucket.inArmor ? { armorData:armorData(i) } : {}),
       tag: profile?.tags?.[i.id]?.tag || '',
       inLoadout: protectedIds.has(i.id) || protectedHashes.has(i.hash),
       exotic: i.rarity === 'Exotic', crafted: Boolean(i.craftedInfo),
@@ -73,20 +117,20 @@
     })));
     const chars = stores.filter(s => !s.isVault).map(s => {
       const occupied = {}, capacity = {};
-      for (const i of stores.flatMap(t => t.items)) if (i.bucket?.inWeapons) capacity[String(i.bucket.hash)] = i.bucket.capacity;
+      for (const i of stores.flatMap(t => t.items)) if (i.bucket?.inWeapons || i.bucket?.inArmor) capacity[String(i.bucket.hash)] = i.bucket.capacity;
       // DIM counts the item's actual location, not its normal destination bucket.
       // Equipped weapons occupy a space; postmaster and other locations do not.
       const seen = new Set();
       for (const i of s.items) {
         const bucket = String(i.location?.hash ?? i.bucket?.hash);
-        if (!i.bucket?.inWeapons || i.location?.inPostmaster || !(bucket in capacity)) continue;
+        if (!(i.bucket?.inWeapons || i.bucket?.inArmor) || i.location?.inPostmaster || !(bucket in capacity)) continue;
         const id = C.normalizeId(String(i.id));
         if (id && seen.has(id)) continue;
         if (id) seen.add(id);
         occupied[bucket] = (occupied[bucket] || 0) + 1;
       }
       for (const bucket of Object.keys(capacity)) occupied[bucket] ||= 0;
-      return { id: s.id, name: `${s.className || s.name}${s.current ? ' · active' : ''}`, current: s.current, isVault: false, capacity, occupied };
+      return { id: s.id, name: `${s.className || s.name}${s.current ? ' · active' : ''}`, classType:Number.isInteger(s.classType) ? s.classType : null, current: s.current, isVault: false, capacity, occupied };
     });
     const checks = [];
     if (version !== 2) checks.push('Open your Destiny 2 account.');
@@ -94,7 +138,7 @@
     if (state.inventory.profileError) checks.push('DIM could not refresh inventory. Refresh DIM before sending weapons.');
     if (!state.dimApi?.profileLoaded || !profile) checks.push('DIM has not loaded tags and loadouts yet.');
     if (!native) checks.push('In-game loadouts could not be verified.');
-    if (!rows.length) checks.push('The weapon inventory is empty or still loading.');
+    if (!rows.length) checks.push('The inventory is empty or still loading.');
     return { items: rows, characters: chars, canTransfer: !checks.length, warnings: checks, at: Date.now(), accountKey: key, source: 'live' };
   }
   function refreshControl() {
@@ -154,25 +198,37 @@
     let fresh = snapshot();
     if (!fresh.canTransfer || fresh.accountKey !== plan.accountKey) throw new Error('The DIM account or connection changed. Refresh inventory.');
     const item = fresh.items.find(i => i.id === itemId);
-    if (!item || !C.canSelect(item, plan.grades, plan.categories, plan.mode)) throw new Error('This weapon changed or cannot be transferred in this mode.');
+    if (item) verifyKeeper(fresh,item,plan);
+    if (!item || !C.canSelectItem(item, plan.grades, plan.categories, plan.mode, plan.kind, plan.kind === 'armor' ? C.armorAnalysis(fresh.items) : null)) throw new Error('This item changed or cannot be transferred in this mode.');
     const target = fresh.characters.find(c => c.id === targetId);
-    if (!C.planBatch(fresh.items, plan.grades, [itemId], target, plan.categories, 1, plan.reserve, plan.mode, plan.batchMode).batch.length) throw new Error('No space remains in the destination slot.');
+    if (!C.planBatch(fresh.items, plan.grades, [itemId], target, plan.categories, 1, plan.reserve, plan.mode, plan.batchMode, plan.kind).batch.length) throw new Error('No space remains or this item is no longer eligible.');
     let tile = document.getElementById(itemId);
     if (!tile || !tile.classList.contains('item')) {
       search([itemId]);
       getStore().dispatch({ type: 'shell/TOGGLE_SEARCH_RESULTS', payload: true });
       tile = await waitFor(() => [...document.querySelectorAll('.item')].find(el => ancestors(el).some(p => p.item?.id === itemId)));
     }
-    if (!ancestors(tile).some(p => p.item?.id === itemId)) throw new Error('The exact weapon copy could not be verified in DIM.');
+    if (!ancestors(tile).some(p => p.item?.id === itemId)) throw new Error('The exact item copy could not be verified in DIM.');
     tile.click();
     const mover = await waitFor(() => findMover(itemId, targetId));
     // Recheck immediately before native DIM action. No equipment action is called.
     fresh = snapshot();
     if (!fresh.canTransfer || fresh.accountKey !== plan.accountKey) throw new Error('The account or connection changed before the transfer.');
-    if (!C.planBatch(fresh.items, plan.grades, [itemId], fresh.characters.find(c => c.id === targetId), plan.categories, 1, plan.reserve, plan.mode, plan.batchMode).batch.length) throw new Error('This weapon or the available space changed before the transfer.');
+    verifyKeeper(fresh,fresh.items.find(i=>i.id === itemId),plan);
+    if (!C.planBatch(fresh.items, plan.grades, [itemId], fresh.characters.find(c => c.id === targetId), plan.categories, 1, plan.reserve, plan.mode, plan.batchMode, plan.kind).batch.length) throw new Error('This item or the available space changed before the transfer.');
     if (stopped) throw new Error('Batch stopped.');
     mover();
     await waitFor(() => snapshot().items.find(i => i.id === itemId && i.owner === targetId && i.equipped === false), 30000);
+  }
+  function verifyKeeper(snap,item,plan) {
+    if (plan.kind !== 'armor' || plan.mode === 'manual') return;
+    const keeper = snap.items.find(i=>i.id === plan.replacements?.[item?.id]);
+    if (!keeper || plan.ids.includes(keeper.id) || keeper.postmaster || keeper.notransfer || typeof keeper.equipped !== 'boolean' ||
+        !C.armorGroup(item) || C.armorGroup(item) !== C.armorGroup(keeper) ||
+        !keeper.armorData.base.every((v,index)=>v >= item.armorData.base[index]) || keeper.power < item.power ||
+        (keeper.armorData.masterwork || 0) < (item.armorData.masterwork || 0)) {
+      throw new Error('The retained armor replacement changed or is missing. Review the batch again.');
+    }
   }
   function emit(kind, data) { document.dispatchEvent(new CustomEvent('vault-cleaner-response', { detail: JSON.stringify({ kind, ...data }) })); }
   document.addEventListener('vault-cleaner-request', async event => {
@@ -191,7 +247,8 @@
         let target = snap.characters.find(c => c.id === payload.targetId);
         const mode = payload.mode === 'manual' ? 'manual' : 'clean';
         const batchMode = payload.batchMode === 'total' ? 'total' : 'slot';
-        const plan = () => C.planBatch(snap.items, payload.grades || {}, payload.ids || [], target, payload.categories || [], payload.limit, payload.reserve, mode, batchMode);
+        const kind = payload.kind === 'armor' ? 'armor' : 'weapons';
+        const plan = () => C.planBatch(snap.items, payload.grades || {}, payload.ids || [], target, payload.categories || [], payload.limit, payload.reserve, mode, batchMode, kind);
         let result = plan();
         // Dismantling in-game may leave DIM's cached inventory full. Refresh once
         // before refusing an otherwise eligible selection for lack of space.
@@ -204,13 +261,16 @@
           result = plan();
         }
         if (!result.batch.length) {
+          if (result.skipped.some(item=>item.reason === 'Select a destination of the same armor class.')) throw new Error('Choose a character of the same class as the selected armor.');
           if (result.skipped.length && result.skipped.every(item => /protected|cannot be transferred/.test(item.reason))) throw new Error('The selected copies are no longer eligible in this transfer mode. Refresh inventory and review your selection.');
           if (result.skipped.some(item => item.reason === 'Capacity could not be verified.')) throw new Error('DIM slot capacity could not be verified. Refresh DIM and prepare the batch again.');
           const spaces = Object.keys(target.capacity || {}).map(bucket => `${snap.items.find(i => i.bucket === bucket)?.bucketName || bucket}: ${C.freeSpaces(target, bucket, payload.reserve) ?? 'unverified'}`).join(' · ');
-          throw new Error(`None of the selected weapons fit in ${target.name}. Free spaces: ${spaces}.`);
+          throw new Error(`None of the selected ${kind === 'armor' ? 'armor pieces' : 'weapons'} fit in ${target.name}. Free spaces: ${spaces}.`);
         }
-        prepared = { ...payload, mode, batchMode, ids: result.batch.map(i => i.id), accountKey: snap.accountKey, token: crypto.randomUUID(), expires: Date.now() + 120000 };
-        emit('reply', { requestId, data: { token: prepared.token, batch: result.batch, target, skipped: result.skipped, counts: result.counts, mode, batchMode, snapshot: snap } }); return;
+        const armor = kind === 'armor' ? C.armorAnalysis(snap.items) : null;
+        const replacements = kind === 'armor' && mode !== 'manual' ? Object.fromEntries(result.batch.map(i=>[i.id,armor.records[i.id].keeperId])) : {};
+        prepared = { ...payload, mode, batchMode, kind, replacements, ids: result.batch.map(i => i.id), accountKey: snap.accountKey, token: crypto.randomUUID(), expires: Date.now() + 120000 };
+        emit('reply', { requestId, data: { token: prepared.token, batch: result.batch, target, skipped: result.skipped, counts: result.counts, mode, batchMode, kind, replacements, snapshot: snap } }); return;
       }
       if (action === 'transfer') {
         const plan = prepared; prepared = null;
