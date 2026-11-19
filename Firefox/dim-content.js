@@ -23,6 +23,7 @@
     prepare: payload => rpc('prepare', payload), transfer: token => rpc('transfer', { token }),
     stop: () => rpc('stop'), search: ids => rpc('search', { ids }),
     sync: () => browser.runtime.sendMessage({ type: 'open-sync' }),
+    improve: id => browser.runtime.sendMessage({ type: 'apply-popular', id }),
     onProgress: callback => { onProgress = callback; }, onGradesChanged: callback => { onGrades = callback; }
   };
   browser.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.vcGrades) onGrades(); });

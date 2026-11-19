@@ -3,7 +3,9 @@
   const C = globalThis.VaultCore;
   const auto = new URLSearchParams(location.search).get('vaultcleaner') === 'sync';
   const MAX_CARD_NODES = 1500, MAX_ANCESTORS = 7, SLICE_MS = 4;
-  const seen = new Map(), pending = new Map();
+  const seen = new Map(), pending = new Map(), cards = new Map();
+  const nativeRequests = new Map();
+  let applying = false, lastAction = null, nativeReady = false;
   const identityAttributes = new Set();
   const MARKERS = '.quality, .tags, img[src*="quality-"], [data-roll-grade], [data-roll-quality], [data-grade], [data-best-grade], [data-max-grade], [data-current-grade], [title*="Best"], [title*="Maximum"], [title*="Popularity"], [title*="popularidad"]';
   let stopped = false, count = 0, bar, label, control, observer, bestMode;
@@ -16,7 +18,7 @@
   function idsAt(node) {
     const ids = new Set();
     for (const attr of Array.from(node.attributes || []).slice(0, 32)) {
-      if (attr.value.length > 768 || attr.name.startsWith('on') || attr.name === 'value' || /owner|character|membership|account/.test(attr.name)) continue;
+      if (attr.name.startsWith('data-vc-') || attr.value.length > 768 || attr.name.startsWith('on') || attr.name === 'value' || /owner|character|membership|account/.test(attr.name)) continue;
       for (const match of attr.value.matchAll(/(?<!\d)\d{18,20}(?!\d)/g)) { ids.add(match[0]); identityAttributes.add(attr.name); }
     }
     return ids;
@@ -59,7 +61,9 @@
     return grade ? { grade, priority: 1, kind: 'grade-attribute', role } : null;
   }
   function hasHigherRank(node) {
-    const labels = [node.getAttribute('title') || '', node.getAttribute('aria-label') || ''];
+    const labels = ['title','aria-label','data-original-title','data-tooltip'].map(key => node.getAttribute(key) || '');
+    if (node.getAttribute('data-higher-rank-possible') === 'true') return true;
+    if (node.matches('.higher-rank-possible, .higher-rank') && node.getClientRects().length) return true;
     if (!node.matches('script, style, input, textarea') && Array.from(node.childNodes).slice(0, 4).some(n => n.nodeType === Node.TEXT_NODE && n.nodeValue.trim())) labels.push(shortText(node));
     return labels.some(value => /higher\s+rank\s+possible|rango\s+(?:superior|mayor)\s+posible/i.test(value.slice(0, 256)));
   }
@@ -77,10 +81,19 @@
     lastUpdate = performance.now();
     label.textContent = `${stopped ? 'Detenida' : scanning ? 'Leyendo tarjetas' : stats.completed ? 'Captura lista' : 'Preparando lectura'} · ${seen.size} notas (${captureBasis === 'best' ? 'máximo confirmado' : 'máximo pendiente'}) · ${count} guardadas · ${stats.ids || 0} IDs · ${stats.markers || 0} marcadores${!seen.size && stats.completed && !scanning ? ' · Si sigue en cero, descarga Diagnóstico.' : ''}`;
   }
-  function collect(id, record) {
+  function collect(id, record, enriched = false) {
     const signature = JSON.stringify(record);
     if (seen.get(id) === signature) return;
     seen.set(id, signature); pending.set(id, record); lastNew = Date.now();
+    const card = cards.get(id);
+    if (!enriched && nativeReady && card?.isConnected) nativeCall(card, 'read', id).then(result => {
+      if (seen.get(id) !== signature || stopped) return;
+      const meta = result.metadata || {}, combined = { ...record };
+      if (C.normalizeGrade(meta.currentGrade)) combined.currentGrade = meta.currentGrade;
+      if (C.normalizeGrade(meta.bestGrade)) { combined.bestGrade = meta.bestGrade; combined.grade = meta.bestGrade; combined.basis = 'best'; }
+      if (typeof meta.higherRankPossible === 'boolean') { combined.higherRankPossible = meta.higherRankPossible; combined.higherRankChecked = true; }
+      collect(id, combined, true);
+    }).catch(() => {});
     if (!saveTimer) saveTimer = setTimeout(flush, 300);
     update();
   }
@@ -109,7 +122,7 @@
       while (current && visited < MAX_CARD_NODES) {
         for (const id of idsAt(current)) ids.add(id);
         if (ids.size > 1) break;
-        higherRankPossible ||= hasHigherRank(current);
+        higherRankPossible ||= hasHigherRank(current) || (current.matches('button, [role=button], [ng-click], [data-ng-click]') && isApply(current) && !current.disabled);
         const marker = readMarker(current);
         if (marker) {
           const rank = ranks[marker.role];
@@ -131,6 +144,7 @@
     }
     if (candidate) {
       processedRoots.add(candidate.container);
+      cards.set(expectedId, candidate.container);
       yield { id: expectedId, record: candidate.record };
     } else stats.noGrade++;
   }
@@ -204,7 +218,7 @@
   }
   function observe() {
     if (!observer || stopped) return;
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: [...new Set(['src','title','href','id','data-id','data-instance-id','data-instanceid','data-item-instance-id','data-iteminstanceid','data-roll-grade','data-roll-quality','data-grade','data-best-grade','data-max-grade','data-current-grade','aria-label', ...identityAttributes])] });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: [...new Set(['src','title','href','id','data-id','data-instance-id','data-instanceid','data-item-instance-id','data-iteminstanceid','data-roll-grade','data-roll-quality','data-grade','data-best-grade','data-max-grade','data-current-grade','data-higher-rank-possible','data-original-title','data-tooltip','aria-label', ...identityAttributes])] });
   }
   function start() {
     stopped = false; session++; seen.clear(); stats.completed = false;
@@ -232,8 +246,78 @@
       }, 1500);
     }
   }
+  const APPLY_LABEL = /^(?:equip popular perks|equip most popular perks|apply popular perks|equipar (?:los )?(?:perks|ventajas) (?:más )?populares|aplicar (?:los )?perks populares)$/i;
+  function isApply(node) {
+    return [shortText(node), node.getAttribute('aria-label') || '', node.getAttribute('title') || ''].some(value => APPLY_LABEL.test(value.trim().replace(/\s+/g, ' ')));
+  }
+  function nativeCall(node, kind, id, timeout = 1500) {
+    return new Promise((resolve, reject) => {
+      const nonce = () => [...crypto.getRandomValues(new Uint8Array(16))].map(value=>value.toString(16).padStart(2,'0')).join('');
+      const requestId = nonce(), token = nonce();
+      const timer = setTimeout(() => { nativeRequests.delete(requestId); node.removeAttribute?.('data-vc-native-token'); reject(new Error('El enlace con light.gg no respondió. Recarga light.gg después de actualizar la extensión.')); }, timeout);
+      nativeRequests.set(requestId, { resolve, reject, timer, node });
+      node.setAttribute?.('data-vc-native-token', token);
+      node.dispatchEvent(new CustomEvent('vc-lightgg-native-request', { bubbles: true, detail: JSON.stringify({requestId,token,kind,id}) }));
+    });
+  }
+  document.addEventListener('vc-lightgg-native-response', event => {
+    let data; try { data = JSON.parse(event.detail); } catch { return; }
+    const request = nativeRequests.get(data.requestId); if (!request) return;
+    clearTimeout(request.timer); nativeRequests.delete(data.requestId); request.node.removeAttribute?.('data-vc-native-token');
+    data.ok ? request.resolve(data) : request.reject(new Error(data.error));
+  });
+  function validCard(id) {
+    const card = cards.get(id); if (!card?.isConnected) return null;
+    const ids = new Set(); const tree = document.createTreeWalker(card, NodeFilter.SHOW_ELEMENT); let node = card, count = 0;
+    while (node && count++ < MAX_CARD_NODES) { for (const value of idsAt(node)) ids.add(value); if (ids.size > 1) return null; node = tree.nextNode(); }
+    return !node && ids.size === 1 && ids.has(id) ? card : null;
+  }
+  function visible(node) { return node.isConnected && node.getClientRects().length && !node.disabled && node.getAttribute('aria-disabled') !== 'true'; }
+  async function applyPopular(id) {
+    if (applying) throw new Error('Hay una mejora en curso en light.gg.');
+    const card = validCard(id); if (!card) throw new Error('Esta copia no está en la página capturada de light.gg. Abre su vista y pulsa Reanudar captura.');
+    applying = true; stop(); lastAction = { idSuffix: id.slice(-8), state: 'locating' };
+    try {
+      card.scrollIntoView({block:'center'});
+      const selectors = 'button, [role="button"], [ng-click], [data-ng-click]';
+      const ownButtons = [...card.querySelectorAll(selectors)].filter(node => visible(node) && isApply(node));
+      let candidates = ownButtons;
+      if (!candidates.length) {
+        const inspect = [card,...card.querySelectorAll('[ng-click], [data-ng-click], button, [role="button"]')].find(node => {
+          if (!visible(node)) return false;
+          const expression = node.getAttribute('ng-click') || node.getAttribute('data-ng-click') || '';
+          if (/perk|equip|lock|tag|move|delete|remove/i.test(expression)) return false;
+          return /inspect|preview|(?:select|setselected|open|show).*(?:roll|item|weapon)/i.test(expression) || /^(?:inspect|inspect roll|inspeccionar)$/i.test(shortText(node));
+        });
+        if (!inspect) throw new Error('No se reconoció el botón para inspeccionar esta copia. Pulsa Diagnóstico en light.gg para ajustar su estructura.');
+        inspect.click();
+        const deadline = Date.now()+5000;
+        do {
+          await new Promise(resolve => setTimeout(resolve,200));
+          candidates = [...document.querySelectorAll(selectors)].filter(node=>!bar.contains(node) && visible(node) && isApply(node)).slice(0,40);
+        } while (!candidates.length && Date.now()<deadline);
+      }
+      if (!candidates.length) throw new Error('light.gg no muestra Equip Popular Perks. Puede que esta copia ya use los más populares o que el inspector no sea compatible. Descarga Diagnóstico si light.gg sí permite mejorarla.');
+      let lastError;
+      for (const button of candidates) {
+        try {
+          const result = await nativeCall(button,'apply',id);
+          lastAction.state = 'submitted';
+          label.textContent = 'Solicitud enviada a light.gg para ID …'+id.slice(-8)+'. Revisa su respuesta; después actualiza DIM. No se afirma éxito hasta verificar los perks.';
+          return result;
+        } catch(error) { lastError=error; }
+      }
+      throw lastError;
+    } catch(error) { lastAction.state='error'; lastAction.error=error.message; throw error; }
+    finally { applying=false; }
+  }
+  if (browser.runtime.onMessage?.addListener) browser.runtime.onMessage.addListener(message => {
+    if (message.type === 'vc-lightgg-probe') return Promise.resolve({found:Boolean(C.normalizeId(message.id) && validCard(message.id))});
+    if (message.type === 'vc-lightgg-apply') return applyPopular(C.normalizeId(message.id)).then(result=>({ok:true,...result}),error=>({ok:false,error:error.message}));
+  });
   function diagnostic() {
-    const report = { version: '0.1.3', captureBasis, page: location.pathname, state: stopped ? 'stopped' : scanning ? 'scanning' : 'idle', capturedThisSession: seen.size, saved: count, counters: stats, samples, limits: { maxCardNodes: MAX_CARD_NODES, maxAncestors: MAX_ANCESTORS, sliceMs: SLICE_MS } };
+    const controls = [...document.querySelectorAll('button, [role=button], [ng-click], [data-ng-click]')].filter(node=>!bar.contains(node) && visible(node)).slice(0,80).map(node=>({tag:node.tagName,classes:(node.className || '').toString().slice(0,120),label:shortText(node).slice(0,120),title:(node.getAttribute('title') || '').slice(0,120),hasAngularBinding:node.hasAttribute('ng-click') || node.hasAttribute('data-ng-click'),apply:isApply(node)}));
+    const report = { controls, nativeReady, version: '0.1.4', lastAction, captureBasis, page: location.pathname, state: stopped ? 'stopped' : scanning ? 'scanning' : 'idle', capturedThisSession: seen.size, saved: count, counters: stats, samples, limits: { maxCardNodes: MAX_CARD_NODES, maxAncestors: MAX_ANCESTORS, sliceMs: SLICE_MS } };
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'Vault-Cleaner-diagnostico.json';
     bar.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -256,7 +340,8 @@
     const help = document.createElement('span'); help.textContent = 'Para leer el máximo: ☰ → Settings → Popularity Rank Display → Best Available.';
     help.style.maxWidth = '300px'; help.style.fontSize = '11px';
     bar.style.flexWrap = 'wrap';
-    bar.append(label, help, confirmation, control, debug); document.body.append(bar); start();
+    bar.append(label, help, confirmation, control, debug); document.body.append(bar);
+    nativeCall(bar,'ping','',300).then(()=>{nativeReady=true;}).catch(()=>{}); start();
   }
   addEventListener('pagehide', stop, { once: true });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true }); else mount();

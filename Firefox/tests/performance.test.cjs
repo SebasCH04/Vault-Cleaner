@@ -41,6 +41,7 @@ const root = path.resolve(__dirname, '..');
     await page.waitForTimeout(150);
     await page.evaluate(()=>{maxDelay=0;longTasks.length=0;});
     await page.addScriptTag({path:root+'/core.js'});
+    await page.addScriptTag({path:root+'/lightgg-native.js'});
     await page.addScriptTag({path:root+'/lightgg-content.js'});
     await page.waitForFunction(()=>Object.keys(saved).length===1300,{},{timeout:30000});
     await page.waitForTimeout(2500);
