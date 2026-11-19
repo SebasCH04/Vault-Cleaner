@@ -1,4 +1,4 @@
-# Vault Cleaner · Destiny 2 · Base 0.1.2
+# Vault Cleaner · Destiny 2 · Base 0.1.3
 
 Extensión inicial para Firefox. Incluye un panel dentro de DIM y una demo interactiva sin conexión.
 
@@ -14,15 +14,32 @@ Extensión inicial para Firefox. Incluye un panel dentro de DIM y una demo inter
 
 Necesita Firefox 140 o posterior. Esta instalación de desarrollo es temporal: al cerrar completamente Firefox, tendrás que volver a cargar el complemento. No es un XPI firmado ni una versión publicada en la tienda. No requiere cambiar configuraciones de seguridad del navegador.
 
-## Actualizar a 0.1.2
+## Actualizar a 0.1.3
 
 1. En la alerta de Firefox, pulsa Stop si el navegador está bloqueado.
 2. Abre `about:debugging#/runtime/this-firefox`, busca Vault Cleaner y pulsa Eliminar / Remove.
 3. Recarga las pestañas de light.gg y DIM. Esto retira el código anterior de las páginas.
 4. Extrae el ZIP actualizado en una carpeta nueva y carga su `vault-cleaner/manifest.json`.
-5. Comprueba que Firefox muestre **0.1.2**. Recarga DIM y vuelve a abrir Sincronizar light.gg.
+5. Comprueba que Firefox muestre **0.1.3**. Recarga DIM y vuelve a abrir Sincronizar light.gg.
 
 La captura anterior recorría repetidamente grandes subárboles de la página; además Detener solo suspendía el desplazamiento. La versión 0.1.2 busca primero IDs de las copias y evalúa cada tarjeta con límites de siete niveles y 1.500 nodos. Todas las búsquedas ceden el control cada pocos milisegundos; la revisión vuelve a ejecutarse solo al cambiar la página. Detener suspende tanto la captura como el recorrido. También se retiró la interceptación de fetch/XHR para evitar procesar las respuestas de light.gg. Después de cargarla, vuelve a sincronizar las notas.
+
+## Máxima popularidad: Best Available
+
+La limpieza ahora usa el mayor rango de popularidad posible **con los perks disponibles en esa copia**, no solo con los perks equipados. Es la opción **Best Available** de light.gg; no significa que todas las armas puedan llegar a S, ni añade perks nuevos, mejora stats, cambia perks en el juego o convierte el arma en otra copia.
+
+1. En Roll Appraiser abre **☰ → Settings → Popularity Rank Display → Best Available**.
+2. Espera a que light.gg actualice las notas de las tarjetas.
+3. En la franja verde de Vault Cleaner marca **Ya activé Best Available en light.gg**. La extensión vuelve a leer la página en tareas pequeñas y guarda lo mostrado como máximo. Esta confirmación corresponde a esa pestaña; al recargarla tendrás que confirmarlo de nuevo. Si cambias la visualización de light.gg a Equipped, desmarca la confirmación antes de capturar.
+4. Vuelve a DIM y pulsa Actualizar inventario. Las categorías y el contador ahora usan máximos confirmados.
+
+Ejemplo: una copia equipada como D pero que puede alcanzar A se filtra como A, por lo que no entra en la limpieza de C/D/F. Una F cuyo máximo es C se filtra como C. Las notas antiguas, las advertencias Higher Rank Possible sin máximo y los rangos contradictorios quedan protegidos hasta volver a sincronizar.
+
+El panel tiene una vista **Mejorables** y una columna **Máximo**. Muestra también el rango actual cuando la tarjeta lo proporciona de forma explícita. Si solo se captura la visualización Best Available, no se inventa un rango actual. Una advertencia Higher Rank Possible se puede capturar desde texto, título o aria-label dentro de la tarjeta. Los selectores de notas actuales/máximas explícitas se comprobaron con estructuras de prueba; no hemos inspeccionado el HTML de tu sesión real. Por eso la opción documentada de visualización y tu confirmación son la vía de sincronización principal. La extensión no pulsa botones que cambien los perks en el juego.
+
+Se comprobó que una D→A no se puede incluir en una tanda de C/D/F, que una F→C se evalúa por C, que los máximos desconocidos/contradictorios se protegen y que cambiar el modo de captura vuelve a evaluar las tarjetas. En una prueba de 1.300 tarjetas y unos 65.000 elementos se mantuvo una sola lectura en reposo, sin tareas de JavaScript de 50 ms o más detectadas. Falta comprobar la lectura del máximo en tu Firefox real.
+
+Referencia oficial de la opción: https://www.light.gg/announcements/76/lightgg-patch-v21-notes-popularity-ranks-roll-appraiser-item-detail-page-updates-and-more/
 
 ## Si las notas quedan en cero
 
@@ -35,7 +52,7 @@ El HTML de tu sesión real aún no estuvo disponible para validar sus selectores
 ## Primera prueba con tu inventario
 
 1. Pulsa **Sincronizar light.gg** en el panel. Se abrirá Roll Appraiser.
-2. Inicia sesión en light.gg si hace falta. Cuando haya armas visibles, la extensión recorrerá la página y guardará las notas que pueda asociar a una copia concreta. Puedes detener toda la captura y reanudarla con el botón de la franja inferior.
+2. Inicia sesión en light.gg si hace falta. Activa Best Available y confírmalo en la franja verde como se explica arriba. Cuando haya armas visibles, la extensión recorrerá la página y guardará las notas que pueda asociar a una copia concreta. Puedes detener toda la captura y reanudarla con el botón de la franja inferior.
 3. Vuelve a DIM y pulsa **Actualizar inventario**. Mira el contador: X armas con nota / Y armas totales.
 4. Las categorías C, D y F vienen marcadas. Selecciona las armas que quieras revisar.
 5. Elige tu personaje. Para probar por primera vez, pon **Máx. / tanda = 1**.
@@ -51,7 +68,7 @@ La extensión mueve objetos mediante los controles de DIM. No pide contraseñas,
 - Calificaciones de light.gg por ID de instancia, recogidas al visitar Roll Appraiser. Captura las tarjetas visibles en tareas pequeñas y con un límite por tarjeta; no intercepta las solicitudes de la página.
 - Categorías S/A/B/C/D/F, con variantes como C+ agrupadas dentro de su letra.
 - Búsqueda por arma y perk, selección individual o de las candidatas visibles.
-- Vistas Candidatas, Protegidas, Sin nota y Todas.
+- Vistas Candidatas, Protegidas, Mejorables, Sin nota y Todas.
 - Protecciones para bloqueadas, equipadas, favoritas, conservar/archivar, loadouts de DIM y del juego, fabricadas, exóticas y Deepsight.
 - Preparación y revisión de una tanda, capacidad calculada por ranura y reserva opcional de un espacio.
 - Traslado secuencial al personaje elegido, sin equipar. Cada movimiento se verifica en el estado actualizado de DIM antes de continuar.
@@ -62,7 +79,7 @@ La extensión mueve objetos mediante los controles de DIM. No pide contraseñas,
 
 - **La integración está implementada y probada con un DIM simulado. No se ha validado todavía en tu cuenta real.** Usa la primera tanda de una sola arma para comprobar la compatibilidad de tu DIM.
 - Las notas de esta demo son inventadas para mostrar el flujo; no describen tus armas ni el meta actual. Nunca se usan en la extensión real.
-- Esta extensión no puede leer el almacenamiento privado de Aegis Overlay. Las notas se capturan de nuevo desde light.gg. Puedes mantener Aegis instalado.
+- Esta extensión no puede leer el almacenamiento privado de Aegis Overlay. Las notas se capturan de nuevo desde light.gg. Aegis no es necesario; puedes desinstalarlo.
 - La captura puede ser parcial. No presupone que 118 notas correspondan a todo el vault. Si light.gg usa filtros, pestañas, paginación o una lista que no se desplaza con la página, habrá que abrir esas vistas para capturar las armas restantes. La captura continúa cuando abres otras páginas de Roll Appraiser; esta versión no automatiza filtros ni paginación.
 - Sin nota significa sin evaluar, nunca F. Se necesita volver a sincronizar para refrescar las notas vencidas.
 - Las armaduras no se evalúan con estas notas de armas. Su limpieza queda para una versión posterior.
@@ -99,9 +116,9 @@ La nueva detección se comprobó además con 1.300 tarjetas identificables y con
 
 ## Pruebas y código
 
-El ZIP incluye el código fuente y las pruebas. Para las pruebas de lógica: `node --test tests/core.test.cjs`.
+El ZIP incluye el código fuente y las pruebas. Para las pruebas de lógica: `node --test tests/core.test.cjs`. Las pruebas `popularity.test.cjs`, `browser.test.cjs`, `capture-layouts.test.cjs` y `performance.test.cjs` necesitan Playwright y un Chromium compatible; no se incluyen esas dependencias en el ZIP.
 
-Se comprobaron 22 casos de IDs, notas, protecciones, antigüedad y capacidad, y cinco flujos en Chromium: interfaz de demo, exclusión de armas sin nota, traslado por la acción STORE de DIM simulado sin usar EQUIP, bloqueo al faltar datos de protección, y captura DOM con rechazo de IDs ambiguos. No se validó una instalación real en Firefox ni un traslado real de Bungie.
+Se comprobaron 27 casos de IDs, notas, protecciones, antigüedad y capacidad, y cinco flujos en Chromium: interfaz de demo, exclusión de armas sin nota, traslado por la acción STORE de DIM simulado sin usar EQUIP, bloqueo al faltar datos de protección, y captura DOM con rechazo de IDs ambiguos. No se validó una instalación real en Firefox ni un traslado real de Bungie.
 
 Referencias de implementación:
 

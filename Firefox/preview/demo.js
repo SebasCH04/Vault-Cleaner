@@ -14,7 +14,11 @@
     ]
   };
   const grades = {};
-  snap.items.forEach((item, i) => { if (letters[i]) grades[item.id] = { grade: letters[i], at: now, source: 'demo' }; });
+  snap.items.forEach((item, i) => { if (letters[i]) grades[item.id] = { grade: letters[i], bestGrade: letters[i], currentGrade: letters[i], at: now, source: 'demo' }; });
+  // Two rescued copies and one higher-rank warning without a known maximum.
+  grades[snap.items[6].id].currentGrade = 'D';
+  grades[snap.items[7].id].currentGrade = 'C';
+  grades[snap.items[13].id] = { grade: 'D', currentGrade: 'D', higherRankPossible: true, at: now, source: 'demo' };
   let plan = null, progress = () => {}, stopped = false;
   const adapter = {
     snapshot: async () => structuredClone(snap), grades: async () => structuredClone(grades),

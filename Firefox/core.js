@@ -37,11 +37,19 @@
     walk(data, 0);
     return result;
   }
-  function gradeFor(item, grades, now = Date.now()) {
+  function gradeDetails(item, grades, now = Date.now()) {
     const record = grades[item.id];
-    const grade = normalizeGrade(record?.grade);
-    if (!grade || !Number.isFinite(record.at) || now - record.at > MAX_GRADE_AGE || record.at > now + 60000) return null;
-    return grade;
+    if (!record || !Number.isFinite(record.at) || now - record.at > MAX_GRADE_AGE || record.at > now + 60000) return null;
+    const shown = normalizeGrade(record.grade), best = normalizeGrade(record.bestGrade);
+    const current = normalizeGrade(record.currentGrade) || (record.basis !== 'best' ? shown : null);
+    if (!shown && !best && !current) return null;
+    // A maximum below the equipped rank is contradictory. Never clean from it.
+    const order = grade => 'SABCDF'.indexOf(grade[0]) * 3 + (grade.endsWith('+') ? 0 : grade.endsWith('-') ? 2 : 1);
+    const conflict = Boolean(best && current && order(best) > order(current));
+    return { current, best: conflict ? null : best, effective: conflict ? current : best || current || shown, higherRankPossible: record.higherRankPossible === true, conflict };
+  }
+  function gradeFor(item, grades, now = Date.now()) {
+    return gradeDetails(item, grades, now)?.effective || null;
   }
   function reasons(item, grades, now = Date.now()) {
     const out = [];
@@ -55,7 +63,9 @@
     if (item.crafted) out.push('Fabricada');
     if (item.deepsight) out.push('Deepsight');
     if (item.notransfer || item.postmaster) out.push('No transferible');
-    if (!gradeFor(item, grades, now)) out.push('Sin nota reciente de light.gg');
+    const details = gradeDetails(item, grades, now);
+    if (!details) out.push('Sin nota reciente de light.gg');
+    else if (!details.best) out.push(details.conflict ? 'Rangos contradictorios: vuelve a sincronizar' : details.higherRankPossible ? 'Puede subir de rango; máximo sin confirmar' : 'Máximo sin confirmar: sincroniza Best Available');
     return out;
   }
   function eligible(item, grades, categories, now = Date.now()) {
@@ -89,7 +99,7 @@
     if (!safe.length) throw new Error('No hay armas seleccionadas.');
     return `(${safe.map(id => `id:${id}`).join(' or ')})`;
   }
-  const api = { normalizeId, normalizeGrade, extractGrades, gradeFor, reasons, eligible, planBatch, exactSearch, MAX_GRADE_AGE };
+  const api = { normalizeId, normalizeGrade, extractGrades, gradeDetails, gradeFor, reasons, eligible, planBatch, exactSearch, MAX_GRADE_AGE };
   root.VaultCore = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(globalThis);

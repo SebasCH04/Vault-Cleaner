@@ -4,7 +4,7 @@ const C = require('../core.js');
 const id = '6917530200300167753';
 const now = Date.now();
 const base = { id, weapon:true, owner:'vault', locked:false, equipped:false, bucket:'energy' };
-const grades = { [id]:{grade:'D',at:now} };
+const grades = { [id]:{grade:'D',bestGrade:'D',at:now} };
 test('Instance IDs remain exact strings; numbers and hashes are rejected', () => {
   assert.equal(C.normalizeId(id),id); assert.equal(C.normalizeId(Number(id)),null); assert.equal(C.normalizeId('1648948519'),null);
 });
@@ -36,7 +36,7 @@ test('Unknown lock and equipment states fail closed', () => {
 });
 test('Space accounting does not overfill individual buckets', () => {
   const items = Array.from({length:5},(_,i)=>({...base,id:String(BigInt(id)+BigInt(i))}));
-  const g=Object.fromEntries(items.map(i=>[i.id,{grade:'F',at:now}]));
+  const g=Object.fromEntries(items.map(i=>[i.id,{grade:'F',bestGrade:'F',at:now}]));
   const target={id:'c',isVault:false,capacity:{energy:10},occupied:{energy:8}};
   assert.equal(C.planBatch(items,g,items.map(i=>i.id),target,['F'],9,true).batch.length,1);
   assert.equal(C.planBatch(items,g,items.map(i=>i.id),target,['F'],9,false).batch.length,2);
@@ -48,4 +48,36 @@ test('Unknown capacities do not permit transfers', () => {
 test('Search uses instance IDs and rejects injected syntax', () => {
   assert.equal(C.exactSearch([id,id,'0) or is:weapon']),`(id:${id})`);
   assert.throws(()=>C.exactSearch([]));
+});
+test('Cleaning uses the best available rank instead of the equipped one', () => {
+  const rescued = {[id]:{grade:'D',currentGrade:'D',bestGrade:'A',at:now}};
+  assert.equal(C.gradeFor(base,rescued),'A');
+  assert.ok(!C.eligible(base,rescued,['C','D','F']));
+  assert.ok(C.eligible(base,rescued,['A']));
+  const stillLow = {[id]:{grade:'F',currentGrade:'F',bestGrade:'C+',at:now}};
+  assert.ok(C.eligible(base,stillLow,['C']));
+  assert.ok(!C.eligible(base,stillLow,['F']));
+});
+test('Missing maximum, legacy notes and higher rank warnings stay protected', () => {
+  for (const record of [{grade:'D',at:now},{grade:'F',higherRankPossible:true,at:now}]) {
+    assert.ok(!C.eligible(base,{[id]:record},['C','D','F']));
+    assert.ok(C.reasons(base,{[id]:record}).some(reason=>/máximo/i.test(reason)));
+  }
+});
+test('Contradictory maximum below the current rank is rejected, including plus/minus', () => {
+  for (const [currentGrade,bestGrade] of [['A','D'],['C+','C-'],['S+','S']]) {
+    const records = {[id]:{grade:bestGrade,currentGrade,bestGrade,at:now}};
+    assert.equal(C.gradeDetails(base,records).best,null);
+    assert.ok(!C.eligible(base,records,['S','A','B','C','D','F']));
+  }
+});
+test('A confirmed Best Available note works without guessing an equipped rank', () => {
+  const records = {[id]:{grade:'D+',basis:'best',bestGrade:'D+',at:now}};
+  assert.equal(C.gradeDetails(base,records).current,null);
+  assert.ok(C.eligible(base,records,['D']));
+});
+test('Batch planning excludes a selected D that can reach A', () => {
+  const records = {[id]:{grade:'D',currentGrade:'D',bestGrade:'A',at:now}};
+  const target={id:'c',capacity:{energy:10},occupied:{energy:1}};
+  assert.equal(C.planBatch([base],records,[id],target,['D'],9,true).batch.length,0);
 });

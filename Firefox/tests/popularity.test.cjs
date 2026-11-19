@@ -1,0 +1,43 @@
+const assert=require('node:assert/strict');
+const path=require('node:path');const fs=require('node:fs');const vm=require('node:vm');
+const {chromium:playwright}=require('playwright');const engine=require('@sparticuz/chromium');const chromium=engine.default||engine;
+const root=path.resolve(__dirname,'..');
+(async()=>{
+ const store={};let listener;
+ vm.runInNewContext(fs.readFileSync(root+'/background.js','utf8'),{URL,Date,browser:{runtime:{onMessage:{addListener:fn=>listener=fn}},storage:{local:{get:async()=>({vcGrades:store.grades}),set:async value=>{store.grades=value.vcGrades;}}},tabs:{}}});
+ const id='6917530200300180001';const sender={url:'https://www.light.gg/god-roll/roll-appraiser/'};
+ await listener({type:'save-grades',grades:{[id]:{grade:'D',currentGrade:'D',bestGrade:'A',higherRankPossible:true}}},sender);
+ assert.equal(store.grades[id].bestGrade,'A');assert.equal(store.grades[id].currentGrade,'D');
+ await listener({type:'save-grades',grades:{[id]:{grade:'D',higherRankPossible:true}}},sender);
+ assert.equal(store.grades[id].bestGrade,undefined);assert.equal(store.grades[id].higherRankPossible,true);
+ assert.equal(listener({type:'save-grades',grades:{[id]:'F'}},{url:'https://example.org'}),undefined);
+ console.log('PASS storage: current/maximum persist separately; unknown recapture clears prior maximum; wrong origin rejected');
+ const browser=await playwright.launch({executablePath:await chromium.executablePath(),args:chromium.args,headless:true});
+ try{
+  const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.setContent(`<main><article><div data-id="${id}"><span class="quality">D</span></div><button>Higher Rank Possible</button></article><article data-id="6917530200300180002"><span data-current-grade="F"></span><span data-best-grade="C+"></span></article><article data-id="6917530200300180003"><span class="quality" title="Current Popularity (D)"></span><span class="quality" title="Best Available (A)"></span></article></main>`);
+  await page.evaluate(()=>{window.saved={};window.browser={runtime:{sendMessage:async msg=>{Object.assign(saved,msg.grades);return{total:Object.keys(saved).length};}}};});
+  await page.addScriptTag({path:root+'/core.js'});await page.addScriptTag({path:root+'/lightgg-content.js'});
+  await page.waitForFunction(()=>Object.keys(saved).length===3);
+  let captured=await page.evaluate(()=>saved);
+  assert.equal(captured[id].higherRankPossible,true);assert.equal(captured[id].bestGrade,undefined);
+  assert.equal(captured['6917530200300180002'].bestGrade,'C+');assert.equal(captured['6917530200300180002'].currentGrade,'F');
+  assert.equal(captured['6917530200300180003'].bestGrade,'A');assert.equal(captured['6917530200300180003'].currentGrade,'D');
+  console.log('PASS capture: warning outside inner grade wrapper; explicit current and maximum; distinct title ranks');
+  await page.locator('#vc-best-mode').check();
+  await page.waitForFunction(()=>saved['6917530200300180001'].bestGrade==='D');
+  assert.equal(await page.evaluate(()=>saved['6917530200300180001'].currentGrade),undefined);
+  await page.locator('#vc-best-mode').uncheck();
+  await page.waitForFunction(()=>saved['6917530200300180001'].bestGrade===undefined);
+  console.log('PASS capture basis: confirmation rescans as Best Available, reverting does not retain a guessed maximum');
+  await page.goto('file://'+root+'/preview/demo.html');
+  await page.waitForFunction(()=>document.getElementById('app').shadowRoot.getElementById('total').textContent==='18');
+  await page.locator('[data-view=improvable]').click();
+  assert.equal(await page.locator('#rows tr').count(),3);
+  const rows=await page.locator('#rows').innerText();assert.match(rows,/Forbearance/);assert.match(rows,/Succession/);assert.match(rows,/máximo sin confirmar/);
+  assert.equal(await page.locator('#rows input:not(:disabled)').count(),0);
+  await page.screenshot({path:path.resolve(root,'../popularity-panel-check.png'),fullPage:true});
+  console.log('PASS panel: rescued D→A and C→S copies and pending maximum appear in Mejorables without selection for C/D/F');
+  assert.deepEqual(errors,[]);
+ } finally {await browser.close();}
+})().catch(error=>{console.error(error);process.exitCode=1;});

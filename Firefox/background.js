@@ -9,9 +9,15 @@ browser.runtime.onMessage.addListener((msg, sender) => {
       const grades = stored.vcGrades || {};
       const now = Date.now();
       let count = 0;
-      for (const [id, grade] of Object.entries(msg.grades || {})) {
-        if (/^\d{18,20}$/.test(id) && /^(?:S|A|B|C|D|F)[+-]?$/.test(grade)) {
-          grades[id] = { grade, at: now, source: msg.source === 'api' ? 'api' : 'dom' }; count++;
+      for (const [id, value] of Object.entries(msg.grades || {})) {
+        const record = typeof value === 'string' ? { grade: value } : value || {};
+        const grade = record.grade;
+        if (typeof grade === 'string' && /^\d{18,20}$/.test(id) && /^(?:S|A|B|C|D|F)[+-]?$/.test(grade)) {
+          const valid = value => typeof value === 'string' && /^(?:S|A|B|C|D|F)[+-]?$/.test(value);
+          grades[id] = { grade, at: now, source: 'dom', basis: record.basis === 'best' ? 'best' : 'displayed', higherRankPossible: record.higherRankPossible === true };
+          if (valid(record.bestGrade)) grades[id].bestGrade = record.bestGrade;
+          if (valid(record.currentGrade)) grades[id].currentGrade = record.currentGrade;
+          count++;
         }
       }
       if (count) await browser.storage.local.set({ vcGrades: grades, vcLastSync: now });
