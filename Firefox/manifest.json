@@ -1,17 +1,83 @@
 {
   "manifest_version": 3,
   "name": "Vault Cleaner · Destiny 2",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Revisa notas de light.gg y lleva candidatos del vault a tu personaje en tandas mediante DIM.",
-  "permissions": ["storage"],
-  "host_permissions": ["https://app.destinyitemmanager.com/*", "https://beta.destinyitemmanager.com/*", "https://www.light.gg/*"],
-  "background": { "scripts": ["background.js"] },
-  "action": { "default_popup": "popup.html", "default_title": "Vault Cleaner" },
-  "content_scripts": [
-    { "matches": ["https://app.destinyitemmanager.com/*", "https://beta.destinyitemmanager.com/*"], "js": ["core.js", "dim-bridge.js"], "world": "MAIN", "run_at": "document_start" },
-    { "matches": ["https://app.destinyitemmanager.com/*", "https://beta.destinyitemmanager.com/*"], "js": ["core.js", "ui.js", "dim-content.js"], "world": "ISOLATED", "run_at": "document_idle" },
-    { "matches": ["https://www.light.gg/god-roll/roll-appraiser/*"], "js": ["core.js", "lightgg-content.js"], "world": "ISOLATED", "run_at": "document_start" }
+  "permissions": [
+    "storage"
   ],
-  "web_accessible_resources": [{ "resources": ["panel.css"], "matches": ["https://app.destinyitemmanager.com/*", "https://beta.destinyitemmanager.com/*"] }],
-  "browser_specific_settings": { "gecko": { "id": "vault-cleaner@local.destiny", "strict_min_version": "140.0", "data_collection_permissions": { "required": ["none"] } } }
+  "host_permissions": [
+    "https://app.destinyitemmanager.com/*",
+    "https://beta.destinyitemmanager.com/*",
+    "https://www.light.gg/*"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Vault Cleaner"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://app.destinyitemmanager.com/*",
+        "https://beta.destinyitemmanager.com/*"
+      ],
+      "js": [
+        "core.js",
+        "dim-bridge.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://app.destinyitemmanager.com/*",
+        "https://beta.destinyitemmanager.com/*"
+      ],
+      "js": [
+        "core.js",
+        "ui.js",
+        "dim-content.js"
+      ],
+      "world": "ISOLATED",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.light.gg/god-roll/roll-appraiser/*"
+      ],
+      "js": [
+        "core.js",
+        "lightgg-content.js"
+      ],
+      "world": "ISOLATED",
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "panel.css"
+      ],
+      "matches": [
+        "https://app.destinyitemmanager.com/*",
+        "https://beta.destinyitemmanager.com/*"
+      ]
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "vault-cleaner@local.destiny",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  }
 }

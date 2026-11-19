@@ -28,8 +28,8 @@ const root = path.resolve(__dirname, '..');
       }
       window.saved={};window.messages=0;window.longTasks=[];window.scans=0;window.maxDelay=0;
       window.browser={runtime:{sendMessage:async msg=>{messages++;Object.assign(saved,msg.grades);return {total:Object.keys(saved).length};}}};
-      const query=document.querySelectorAll.bind(document);
-      document.querySelectorAll=function(selector){if(selector==='img.quality')scans++;return query(selector);};
+      const createTreeWalker=document.createTreeWalker.bind(document);
+      document.createTreeWalker=function(root,...args){if(root===document.body)scans++;return createTreeWalker(root,...args);};
       const observer=new PerformanceObserver(entries=>longTasks.push(...entries.getEntries().map(e=>e.duration)));
       observer.observe({entryTypes:['longtask']});
       let last=performance.now();window.heartbeat=setInterval(()=>{const now=performance.now();maxDelay=Math.max(maxDelay,now-last);last=now;},25);
@@ -49,15 +49,15 @@ const root = path.resolve(__dirname, '..');
     assert.ok(metrics.maxDelay<250,JSON.stringify(metrics));
     assert.equal(metrics.longTasks.length,0,JSON.stringify(metrics));
     console.log('PASS large page: '+JSON.stringify(metrics));
-    await page.locator('#vc-lightgg-status button').click();
+    await page.getByRole('button',{name:'Detener captura',exact:true}).click();
     await page.evaluate(()=>{
       const card=document.createElement('div');card.dataset.id='6917530200300169999';card.innerHTML='<img class="quality" title="Popularity (F)">';document.getElementById('list').append(card);
     });
     await page.waitForTimeout(2500);
     const paused=await page.evaluate(()=>({scans,captured:Object.hasOwn(saved,'6917530200300169999'),text:document.getElementById('vc-lightgg-status').textContent}));
-    assert.equal(paused.scans,1);assert.equal(paused.captured,false);assert.match(paused.text,/Captura detenida/);
+    assert.equal(paused.scans,1);assert.equal(paused.captured,false);assert.match(paused.text,/Detenida/);
     console.log('PASS Stop: no background rescans or capture after DOM changes');
-    await page.locator('#vc-lightgg-status button').click();
+    await page.getByRole('button',{name:'Reanudar captura',exact:true}).click();
     await page.waitForFunction(()=>Object.hasOwn(saved,'6917530200300169999'),{},{timeout:30000});
     console.log('PASS Resume: new weapons are captured without page reload');
     // Recycled cards: same image and grade, changed instance identity.

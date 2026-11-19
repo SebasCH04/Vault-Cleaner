@@ -1,4 +1,4 @@
-# Vault Cleaner · Destiny 2 · Base 0.1.1
+# Vault Cleaner · Destiny 2 · Base 0.1.2
 
 Extensión inicial para Firefox. Incluye un panel dentro de DIM y una demo interactiva sin conexión.
 
@@ -14,15 +14,23 @@ Extensión inicial para Firefox. Incluye un panel dentro de DIM y una demo inter
 
 Necesita Firefox 140 o posterior. Esta instalación de desarrollo es temporal: al cerrar completamente Firefox, tendrás que volver a cargar el complemento. No es un XPI firmado ni una versión publicada en la tienda. No requiere cambiar configuraciones de seguridad del navegador.
 
-## Sustituir la versión 0.1.0 que ralentizaba light.gg
+## Actualizar a 0.1.2
 
 1. En la alerta de Firefox, pulsa Stop si el navegador está bloqueado.
 2. Abre `about:debugging#/runtime/this-firefox`, busca Vault Cleaner y pulsa Eliminar / Remove.
 3. Recarga las pestañas de light.gg y DIM. Esto retira el código anterior de las páginas.
 4. Extrae el ZIP actualizado en una carpeta nueva y carga su `vault-cleaner/manifest.json`.
-5. Comprueba que Firefox muestre **0.1.1**. Recarga DIM y vuelve a abrir Sincronizar light.gg.
+5. Comprueba que Firefox muestre **0.1.2**. Recarga DIM y vuelve a abrir Sincronizar light.gg.
 
-La captura anterior recorría repetidamente grandes subárboles de la página; además Detener solo suspendía el desplazamiento. La corrección limita las búsquedas a seis niveles y 96 nodos por contenedor, cede el control cada pocos milisegundos, revisa de nuevo solo cuando cambia la página y detiene tanto la captura como el recorrido. También se retiró la interceptación de fetch/XHR para evitar procesar las respuestas de light.gg. Se conservan las notas ya guardadas porque el ID de la extensión es el mismo.
+La captura anterior recorría repetidamente grandes subárboles de la página; además Detener solo suspendía el desplazamiento. La versión 0.1.2 busca primero IDs de las copias y evalúa cada tarjeta con límites de siete niveles y 1.500 nodos. Todas las búsquedas ceden el control cada pocos milisegundos; la revisión vuelve a ejecutarse solo al cambiar la página. Detener suspende tanto la captura como el recorrido. También se retiró la interceptación de fetch/XHR para evitar procesar las respuestas de light.gg. Después de cargarla, vuelve a sincronizar las notas.
+
+## Si las notas quedan en cero
+
+Esta versión admite marcadores de nota como imagen, etiqueta `.quality`, texto en `.tags` y atributos explícitos de roll. Acepta IDs completos incluso dentro de nombres como `weapon_691753…`. Prioriza los títulos de popularidad sobre las etiquetas secundarias y no asigna S a una tarjeta por decir God Roll.
+
+La franja inferior muestra notas, IDs y marcadores encontrados. Espera a que indique Captura lista. Si las notas permanecen en cero, pulsa **Diagnóstico** y adjunta el archivo `Vault-Cleaner-diagnostico.json` en el chat. El reporte contiene contadores, nombres de etiquetas/clases/atributos, muestras de marcadores y terminaciones de algunos IDs. No exporta el HTML completo, cookies, contraseñas, tokens, valores de formularios ni el contenido de scripts. El reporte se descarga localmente; no se envía automáticamente.
+
+El HTML de tu sesión real aún no estuvo disponible para validar sus selectores. Las pruebas cubren distintas estructuras simuladas, no garantizan que la página real use una de ellas.
 
 ## Primera prueba con tu inventario
 
@@ -82,6 +90,12 @@ También se entrega `Vault-Cleaner-demo.html`, que reúne la demo en un único a
 ## Prueba de rendimiento de la corrección 0.1.1
 
 En una página de prueba en Chromium con 1.300 tarjetas identificables y 200 contenedores sin ID (65.709 elementos DOM), se capturaron las 1.300 notas. Se ejecutó una sola búsqueda de tarjetas en reposo, sin tareas largas de 50 ms o más detectadas; el mayor intervalo del temporizador de respuesta fue 42,7 ms. Se comprobó que Detener evita nuevas búsquedas tras modificar la página, que Reanudar recoge tarjetas nuevas y que un cambio de ID en una tarjeta reutilizada se vuelve a evaluar. Esta medición corresponde al entorno de prueba; falta comprobar el resultado en tu Firefox con light.gg real.
+
+## Verificación de la captura 0.1.2
+
+Se probaron tarjetas con 240 elementos de perks antes de la nota, notas en texto, imágenes sin la clase quality, atributos explícitos y distintos prefijos de ID. Se rechazaron N/A, el texto God Roll sin una nota, las notas contradictorias y los contenedores con dos copias diferentes. Se comprobó la descarga del diagnóstico y la actualización de atributos de instancia descubiertos automáticamente. Las pruebas originales de interfaz y traslado simulado también pasaron.
+
+La nueva detección se comprobó además con 1.300 tarjetas identificables y contenedores sin ID en una página de unos 65.000 elementos. La lectura permaneció dividida en tareas pequeñas, sin interceptación de solicitudes y sin escanear continuamente una página sin cambios. Se verificó que Detener y Reanudar funcionan.
 
 ## Pruebas y código
 
