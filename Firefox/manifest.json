@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vault Cleaner · Destiny 2",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Review light.gg maximum ranks and transfer selected vault weapons to a character in batches through DIM.",
   "permissions": [
     "storage"

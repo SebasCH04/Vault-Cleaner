@@ -16,8 +16,9 @@
 <div class="intro"><p class="eyebrow">YOUR NEXT CLEANUP</p><h2>Make room<br>for what's next.</h2><p class="muted">Choose ranks. Review your weapons.<br>Transfer them in batches.</p></div>
 <div class="stats"><div class="stat"><div><b id="rated">—</b><span>weapons with a confirmed maximum</span><div class="progress"><i id="coverage"></i></div></div></div><div class="stat"><div><b id="total">—</b><span>total weapons in your inventory</span></div></div><div class="stat"><div><b id="candidates">—</b><span>vault candidates</span></div></div></div>
 <div class="top-actions"><button id="refresh">${icon('refresh')}Refresh inventory</button><button id="sync" class="quiet">Sync light.gg ↗</button></div>
-<div class="section-title"><h3>Maximum popularity</h3><span>light.gg</span></div><div class="grades" id="grades"></div>
+<div class="section-title"><h3>Maximum popularity</h3><span>light.gg · Vault</span></div><div class="grades" id="grades"></div>
 <p class="muted" style="font-size:11px;line-height:1.5">Uses the highest rank possible with this copy's available perks. A C that can reach S is classified as S.</p>
+<p class="muted" id="rank-scope" style="font-size:10px;margin:0 0 13px"></p>
 <div class="safeguards"><span>Locked weapons protected</span><span>Favorites and loadouts</span><span>Crafted and exotic weapons</span></div>
 </aside><main class="right"><div id="status" class="status">Connecting to inventory…</div>
 <div class="mode-picker"><label class="field">Transfer mode<select id="transfer-mode"><option value="clean">Cleanup by maximum</option><option value="manual">Manual transfer</option></select></label><p class="muted" id="mode-hint"></p></div>
@@ -31,12 +32,12 @@
 <label class="field">Batch sizing<select id="batch-mode"><option value="slot">Per slot</option><option value="total">Total</option></select></label>
 <label class="field"><span id="limit-label">Max / slot</span><input type="number" id="limit" value="9" min="1" max="9"></label>
 </div><div class="batch-options"><p class="sizing-hint" id="sizing-hint"></p><label class="reserve"><input type="checkbox" id="reserve">Keep 1 extra space per slot</label></div></div>
-<div class="footer-right"><div class="send-row"><div class="selection"><b id="selected-count">0</b> selected<small id="capacity">Transfers respect available space.</small></div><div class="batch-actions"><button id="search-dim" class="quiet">View in DIM</button><button id="prepare" class="primary">Prepare batch ${icon('arrow')}</button></div></div>
+<div class="footer-right"><div class="send-row"><div class="selection"><b id="selected-count">0</b> selected<small id="capacity">Transfers respect available space.</small><small id="space-detail"></small></div><div class="batch-actions"><button id="search-dim" class="quiet">View in DIM</button><button id="prepare" class="primary">Prepare batch ${icon('arrow')}</button></div></div>
 <div id="run" class="run-box hidden"><span id="run-text"></span><button id="stop" class="danger">Stop</button></div><p class="footnote">Review the batch before sending. Dismantle in Destiny 2, then prepare the next batch.</p></div>
 </footer><div id="dialog" class="dialog-backdrop hidden"></div></div>`;
     root.append(shell);
     const $ = id => root.getElementById(id);
-    let snap = { items: [], characters: [], canTransfer: false }, grades = {}, selected = new Set(), categories = new Set(['C','D','F']), view = 'candidates', query = '', busy = false, loading = false, currentPlan = null, mode = 'clean', batchMode = 'slot';
+    let snap = { items: [], characters: [], canTransfer: false }, grades = {}, selected = new Set(), categories = new Set(['C','D','F']), view = 'candidates', query = '', busy = false, loading = false, currentPlan = null, mode = 'clean', batchMode = 'slot', pendingSnapshot = null;
     function status(text, kind = '') { $('status').textContent = text; $('status').className = 'status' + (kind ? ` ${kind}` : ''); }
     function candidates() { return snap.items.filter(item => C.eligible(item, grades, [...categories])); }
     function rows() {
@@ -51,12 +52,18 @@
     }
     function selectable(item) { return C.canSelect(item, grades, [...categories], mode); }
     function syncSelection() { for (const id of selected) if (!snap.items.some(i => i.id === id && selectable(i))) selected.delete(id); }
+    function rankItems() { return snap.items.filter(item => C.canSelect(item, grades, ['S','A','B','C','D','F'], mode)); }
     function render() {
       syncSelection();
       const rated = snap.items.filter(i => C.gradeDetails(i, grades)?.best).length;
       $('rated').textContent = rated; $('total').textContent = snap.items.length; $('candidates').textContent = candidates().length;
       $('coverage').style.width = `${snap.items.length ? rated / snap.items.length * 100 : 0}%`;
-      $('grades').innerHTML = ['S','A','B','C','D','F'].map(grade => `<button class="grade-button ${categories.has(grade) ? 'active' : ''}" data-grade="${grade}" aria-pressed="${categories.has(grade)}" ${busy || mode === 'manual' ? 'disabled' : ''}><b>${grade}</b><span>${snap.items.filter(i => C.gradeDetails(i, grades)?.best?.[0] === grade).length} weapons</span></button>`).join('');
+      const ranked = rankItems();
+      $('grades').innerHTML = ['S','A','B','C','D','F'].map(grade => {
+        const count = ranked.filter(i => C.gradeDetails(i, grades)?.best?.[0] === grade).length;
+        return `<button class="grade-button ${categories.has(grade) ? 'active' : ''}" data-grade="${grade}" aria-pressed="${categories.has(grade)}" ${busy || mode === 'manual' ? 'disabled' : ''}><b>${grade}</b><span>${count} ${count === 1 ? 'weapon' : 'weapons'}</span></button>`;
+      }).join('');
+      $('rank-scope').textContent = mode === 'manual' ? 'Counts show transferable vault weapons with confirmed maxima.' : 'Counts show cleanup-ready vault weapons. Protected copies are excluded.';
       $('mode-hint').textContent = mode === 'manual' ? 'Choose any transferable vault weapon, including S, ungraded, locked or cleanup-protected copies. You decide what to dismantle in-game.' : 'Candidates use each copy’s maximum rank and keep cleanup protections.';
       $('limit-label').textContent = batchMode === 'total' ? 'Max / batch' : 'Max / slot';
       $('sizing-hint').textContent = batchMode === 'total' ? 'One limit across all selected slots.' : 'Separate limit for Kinetic, Energy and Power.';
@@ -75,20 +82,21 @@
       $('all-check').checked = eligibleVisible.length > 0 && eligibleVisible.every(i => selected.has(i.id));
       $('all-check').disabled = busy || !eligibleVisible.length;
       $('selected-count').textContent = selected.size;
-      for (const id of ['prepare','search-dim']) $(id).disabled = busy || !selected.size || (id === 'prepare' && !snap.canTransfer);
+      for (const id of ['prepare','search-dim']) $(id).disabled = busy || loading || !selected.size || (id === 'prepare' && !snap.canTransfer);
       $('refresh').disabled = busy || loading;
       for (const id of ['target','limit','reserve','select-visible','sync','query','transfer-mode','batch-mode']) $(id).disabled = busy;
       $('tabs').querySelectorAll('button').forEach(btn => { btn.classList.toggle('active', btn.dataset.view === view); btn.disabled = busy; });
       const target = snap.characters.find(c => c.id === $('target').value);
+      $('space-detail').classList.toggle('hidden', batchMode === 'total' || !target);
       if (target) {
         const maxLimit = batchMode === 'total' ? 27 : 9;
         const limit = Math.max(1,Math.min(maxLimit,Math.floor(Number($('limit').value) || 9)));
-        const perSlot = batchMode === 'total' ? 9 : limit;
-        const slots = Object.keys(target.capacity || {}).map(bucket => ({bucket,free:Number.isInteger(target.capacity[bucket]) && Number.isInteger(target.occupied?.[bucket]) ? Math.min(perSlot,Math.max(0,target.capacity[bucket]-target.occupied[bucket]-($('reserve').checked ? 1 : 0))) : 0}));
-        const total = Math.min(batchMode === 'total' ? limit : 27,slots.reduce((sum,slot)=>sum+slot.free,0));
-        $('capacity').textContent = slots.map(slot=>`${bucketLabel(slot.bucket)}: ${slot.free}`).join(' · ') + ` · Up to ${total} this batch.`;
-
-      }
+        const plan = C.planBatch(snap.items, grades, [...selected], target, [...categories], limit, $('reserve').checked, mode, batchMode);
+        const slots = Object.keys(target.capacity || {}).sort((a,b)=>['Kinetic','Energy','Power'].indexOf(bucketLabel(a))-['Kinetic','Energy','Power'].indexOf(bucketLabel(b))).map(bucket=>({bucket,free:C.freeSpaces(target,bucket,$('reserve').checked)}));
+        $('capacity').textContent = `${plan.batch.length} ready this batch · ${batchMode === 'total' ? 'Total limit' : 'Limit per slot'} ${limit}`;
+        if (selected.size && !plan.batch.length) $('capacity').textContent += snap.source === 'demo' ? ' · Choose a character with free space.' : ' · DIM will recheck space when you prepare.';
+        $('space-detail').textContent = `${$('reserve').checked ? 'Free spaces after reserve' : 'Free spaces'}: ` + slots.map(slot=>`${bucketLabel(slot.bucket)} ${slot.free ?? 'unverified'}`).join(' · ');
+      } else $('capacity').textContent = 'Select a destination character.';
     }
     function bucketLabel(bucket) { return ({kinetic:'Kinetic',energy:'Energy',power:'Power','1498876634':'Kinetic','2465295065':'Energy','953998645':'Power'})[bucket] || snap.items.find(item=>item.bucket === bucket)?.bucketName || bucket; }
     function batchSummary(batch) {
@@ -102,11 +110,14 @@
       if (snap.characters.some(c => c.id === previous)) $('target').value = previous;
       else $('target').value = snap.characters.find(c => c.current)?.id || snap.characters[0]?.id || '';
     }
-    async function refresh(quiet = false) {
+    function applySnapshot(next) { snap = next; populateTargets(); render(); }
+    let lastNativeRefresh = 0;
+    async function refresh(quiet = false, fromGame = false) {
       if (busy || loading) return;
       loading = true; render();
       try {
-        [snap, grades] = await Promise.all([adapter.snapshot(), adapter.grades()]);
+        if (fromGame) { lastNativeRefresh = Date.now(); if (!quiet) status('Refreshing inventory through DIM…'); }
+        [snap, grades] = await Promise.all([fromGame && adapter.refresh ? adapter.refresh() : adapter.snapshot(), adapter.grades()]);
         populateTargets();
         if (!quiet) {
           if (snap.source === 'demo') status('INTERACTIVE DEMO · Sample inventory and ranks. Transfers are simulated and do not affect your account.', 'demo');
@@ -114,12 +125,16 @@
           else status(`${snap.items.filter(i => C.gradeDetails(i, grades)?.best).length} of ${snap.items.length} weapons have a confirmed maximum. Cleanup protects copies without a maximum.`);
         }
       } catch (error) { status(error.message, 'error'); }
-      finally { loading = false; render(); }
+      finally {
+        if (pendingSnapshot && pendingSnapshot.at >= (snap.at || 0)) snap = pendingSnapshot;
+        pendingSnapshot = null; loading = false; populateTargets(); render();
+      }
     }
     async function prepare() {
       busy = true; render();
       try {
         currentPlan = await adapter.prepare({ ids: [...selected], grades, categories: [...categories], targetId: $('target').value, limit: Number($('limit').value), reserve: $('reserve').checked, mode, batchMode });
+        if (currentPlan.snapshot) applySnapshot(currentPlan.snapshot);
         $('dialog').innerHTML = `<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="review-title"><p class="eyebrow">REVIEW THIS BATCH</p><h2 id="review-title">${currentPlan.batch.length} ${currentPlan.batch.length === 1 ? 'weapon' : 'weapons'} → ${esc(currentPlan.target.name)}</h2><p>${mode === 'manual' ? 'Manual selection: these copies transfer without rank or cleanup protection filters. Their locks and tags are retained.' : 'This batch uses confirmed maximum ranks and cleanup protections.'}</p><p>${currentPlan.batchMode === 'total' || batchMode === 'total' ? 'Total limit across all slots' : 'Limit per slot'} · ${esc(batchSummary(currentPlan.batch))}</p><ul class="review-list">${currentPlan.batch.map(item => `<li><span>${esc(item.name)}<small class="muted" style="display:block">${esc((item.perks || []).join(' · '))}</small><small class="muted">ID …${esc(item.id.slice(-8))}${mode === 'manual' ? ' · ' + esc(C.reasons(item, grades).join(' · ') || 'No cleanup protections') : ''}</small></span><span class="badge" data-grade="${esc(C.gradeDetails(item, grades)?.best?.[0])}">${esc(C.gradeDetails(item, grades)?.best || '—')}</span></li>`).join('')}</ul>${currentPlan.skipped?.length ? `<p>${currentPlan.skipped.length} selected copies were left out due to space, limits or state. You can review them in the next batch.</p>` : ''}<p>${snap.source === 'demo' ? 'This batch is a simulation.' : 'After transferring, dismantle in-game. You can stop the batch between weapons.'}</p><div class="dialog-actions"><button id="cancel-plan">Back to review</button><button id="confirm-plan" class="primary">${snap.source === 'demo' ? 'Simulate transfer' : 'Send batch'}</button></div></section>`;
         $('dialog').classList.remove('hidden');
         $('cancel-plan').onclick = () => { $('dialog').classList.add('hidden'); currentPlan = null; busy = false; render(); };
@@ -139,8 +154,20 @@
     if (adapter.onProgress) adapter.onProgress(data => {
       $('run-text').textContent = `${data.moved} / ${data.total} confirmed · ${data.name}`;
       if (data.completedId) selected.delete(data.completedId);
+      if (data.snapshot) applySnapshot(data.snapshot);
     });
-    $('refresh').onclick = () => refresh();
+    if (adapter.onInventoryChanged) adapter.onInventoryChanged(next => {
+      if (loading) pendingSnapshot = next;
+      else if (host.style.display === 'none') snap = next;
+      else applySnapshot(next);
+    });
+    const refreshOnReturn = () => {
+      if (document.hidden || host.style.display === 'none' || busy || loading || snap.source !== 'live' || Date.now()-lastNativeRefresh < 10000) return;
+      refresh(true, true);
+    };
+    window.addEventListener('focus', refreshOnReturn);
+    document.addEventListener('visibilitychange', refreshOnReturn);
+    $('refresh').onclick = () => refresh(false, true);
     $('sync').onclick = async () => { try { await adapter.sync(); status('In light.gg, choose ☰ → Settings → Popularity Rank Display → Best Available. When ranks update, check “I am viewing Best Available” in the capture bar. Then return and click Refresh inventory.'); } catch(error) { status(error.message,'error'); } };
     $('prepare').onclick = prepare;
     $('search-dim').onclick = async () => { try { await adapter.search([...selected]); } catch(error) { status(error.message,'error'); } };

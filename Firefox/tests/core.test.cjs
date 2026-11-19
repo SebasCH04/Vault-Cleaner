@@ -44,6 +44,7 @@ test('Space accounting does not overfill individual buckets', () => {
 });
 test('Unknown capacities do not permit transfers', () => {
   assert.equal(C.planBatch([base],grades,[id],{id:'c',capacity:{},occupied:{}},['D']).batch.length,0);
+  assert.equal(C.planBatch([base],grades,[id],{id:'c',capacity:{energy:10},occupied:{energy:-1}},['D']).batch.length,0);
 });
 test('Search uses instance IDs and rejects injected syntax', () => {
   assert.equal(C.exactSearch([id,id,'0) or is:weapon']),`(id:${id})`);

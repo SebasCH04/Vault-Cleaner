@@ -36,7 +36,7 @@
         await new Promise(resolve => setTimeout(resolve, 550));
         item.owner = plan.target.id; item.ownerName = plan.target.name;
         plan.target.occupied[item.bucket]++; moved++;
-        progress({ moved, total: plan.batch.length, name: item.name, completedId: item.id });
+        progress({ moved, total: plan.batch.length, name: item.name, completedId: item.id, snapshot: structuredClone(snap) });
       }
       return { moved, stopped, snapshot: structuredClone(snap) };
     },

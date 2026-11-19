@@ -1,10 +1,11 @@
 (() => {
   'use strict';
   const pending = new Map();
-  let onProgress = () => {}, onGrades = () => {};
+  let onProgress = () => {}, onGrades = () => {}, onInventory = () => {};
   document.addEventListener('vault-cleaner-response', event => {
     let message; try { message = JSON.parse(event.detail); } catch { return; }
     if (message.kind === 'progress') { onProgress(message.data); return; }
+    if (message.kind === 'inventory') { onInventory(message.data); return; }
     const request = pending.get(message.requestId); if (!request) return;
     clearTimeout(request.timer); pending.delete(message.requestId);
     message.error ? request.reject(new Error(message.error)) : request.resolve(message.data);
@@ -12,18 +13,19 @@
   function rpc(action, payload) {
     return new Promise((resolve, reject) => {
       const requestId = crypto.randomUUID();
-      const timer = setTimeout(() => { pending.delete(requestId); reject(new Error('The DIM connection timed out. Reload DIM.')); }, action === 'transfer' ? 900000 : 12000);
+      const timer = setTimeout(() => { pending.delete(requestId); reject(new Error('The DIM connection timed out. Reload DIM.')); }, action === 'transfer' ? 900000 : ['refresh','prepare'].includes(action) ? 35000 : 12000);
       pending.set(requestId, { resolve, reject, timer });
       document.dispatchEvent(new CustomEvent('vault-cleaner-request', { detail: JSON.stringify({ requestId, action, payload }) }));
     });
   }
   const adapter = {
     snapshot: () => rpc('snapshot'),
+    refresh: () => rpc('refresh'),
     grades: async () => (await browser.storage.local.get('vcGrades')).vcGrades || {},
     prepare: payload => rpc('prepare', payload), transfer: token => rpc('transfer', { token }),
     stop: () => rpc('stop'), search: ids => rpc('search', { ids }),
     sync: () => browser.runtime.sendMessage({ type: 'open-sync' }),
-    onProgress: callback => { onProgress = callback; }, onGradesChanged: callback => { onGrades = callback; }
+    onProgress: callback => { onProgress = callback; }, onGradesChanged: callback => { onGrades = callback; }, onInventoryChanged: callback => { onInventory = callback; }
   };
   browser.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.vcGrades) onGrades(); });
   const toggle = document.createElement('button'); toggle.textContent = '◇  Vault Cleaner';

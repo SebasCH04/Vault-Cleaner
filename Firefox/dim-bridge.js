@@ -3,31 +3,49 @@
   if (window.__vaultCleanerBridge) return;
   window.__vaultCleanerBridge = true;
   const C = globalThis.VaultCore;
-  let redux = null, prepared = null, running = false, stopped = false;
+  let redux = null, prepared = null, running = false, stopped = false, refreshing = null;
+  let watched = null, inventoryTimer = null;
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const accountKeyFor = state => `${state.accounts?.currentAccountMembershipId}-d${state.accounts?.currentAccountDestinyVersion}`;
   function fiber(el) {
     const key = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
     return key ? el[key] : null;
   }
   function getStore() {
-    if (redux?.getState()?.inventory?.stores) return redux;
+    if (redux?.getState()?.inventory?.stores) { watchStore(redux); return redux; }
     for (const el of [...document.querySelectorAll('.item')].slice(0, 8).concat([...document.body.children])) {
       let f = fiber(el);
       for (let depth = 0; f && depth < 100; depth++, f = f.return) {
         const p = f.memoizedProps;
         for (const candidate of [p?.store, p?.value?.store, f.memoizedState?.memoizedState?.store]) {
-          if (typeof candidate?.getState === 'function' && candidate.getState()?.inventory?.stores) { redux = candidate; return redux; }
+          if (typeof candidate?.getState === 'function' && candidate.getState()?.inventory?.stores) { redux = candidate; watchStore(redux); return redux; }
         }
       }
     }
     throw new Error('DIM inventory was not found. Sign in, open Inventory, expand Weapons and click Refresh inventory.');
+  }
+  function watchStore(store) {
+    if (watched === store || typeof store.subscribe !== 'function') return;
+    watched = store;
+    let previous = store.getState();
+    store.subscribe(() => {
+      const next = store.getState();
+      const changed = next.inventory?.stores !== previous.inventory?.stores || next.inventory?.profileError !== previous.inventory?.profileError || next.inventory?.live !== previous.inventory?.live || next.accounts !== previous.accounts || next.dimApi !== previous.dimApi || next.inGameLoadouts !== previous.inGameLoadouts;
+      previous = next;
+      if (!changed) return;
+      clearTimeout(inventoryTimer);
+      inventoryTimer = setTimeout(() => {
+        if (running || document.hidden) return; // Confirmed transfers already carry their updated snapshot.
+        try { emit('inventory', { data: snapshot() }); } catch { /* A later DIM state update can restore the connection. */ }
+      }, 120);
+    });
   }
   function snapshot() {
     const state = getStore().getState();
     const stores = state.inventory.stores;
     const account = state.accounts;
     const version = account?.currentAccountDestinyVersion;
-    const key = `${account?.currentAccountMembershipId}-d${version}`;
+    const key = accountKeyFor(state);
     const profile = state.dimApi?.profiles?.[key];
     const protectedIds = new Set(), protectedHashes = new Set();
     function protect(loadout) {
@@ -44,7 +62,7 @@
     const rows = stores.flatMap(store => store.items.filter(i => i.bucket?.inWeapons).map(i => ({
       id: String(i.id), hash: i.hash, name: i.name, type: i.typeName, icon: i.icon,
       bucket: String(i.bucket.hash), bucketName: i.bucket.name,
-      capacity: i.bucket.capacity, owner: i.owner, ownerName: store.name,
+      capacity: i.bucket.capacity, owner: store.isVault ? 'vault' : String(store.id), ownerName: store.name,
       locked: i.locked, equipped: i.equipped, weapon: true,
       tag: profile?.tags?.[i.id]?.tag || '',
       inLoadout: protectedIds.has(i.id) || protectedHashes.has(i.hash),
@@ -56,17 +74,57 @@
     const chars = stores.filter(s => !s.isVault).map(s => {
       const occupied = {}, capacity = {};
       for (const i of stores.flatMap(t => t.items)) if (i.bucket?.inWeapons) capacity[String(i.bucket.hash)] = i.bucket.capacity;
-      for (const i of s.items) if (i.bucket?.inWeapons && !i.location?.inPostmaster) occupied[String(i.bucket.hash)] = (occupied[String(i.bucket.hash)] || 0) + 1;
+      // DIM counts the item's actual location, not its normal destination bucket.
+      // Equipped weapons occupy a space; postmaster and other locations do not.
+      const seen = new Set();
+      for (const i of s.items) {
+        const bucket = String(i.location?.hash ?? i.bucket?.hash);
+        if (!i.bucket?.inWeapons || i.location?.inPostmaster || !(bucket in capacity)) continue;
+        const id = C.normalizeId(String(i.id));
+        if (id && seen.has(id)) continue;
+        if (id) seen.add(id);
+        occupied[bucket] = (occupied[bucket] || 0) + 1;
+      }
       for (const bucket of Object.keys(capacity)) occupied[bucket] ||= 0;
       return { id: s.id, name: `${s.className || s.name}${s.current ? ' · active' : ''}`, current: s.current, isVault: false, capacity, occupied };
     });
     const checks = [];
     if (version !== 2) checks.push('Open your Destiny 2 account.');
     if (!state.inventory.live || state.inventory.mockProfileData) checks.push('DIM is not connected to the live inventory.');
+    if (state.inventory.profileError) checks.push('DIM could not refresh inventory. Refresh DIM before sending weapons.');
     if (!state.dimApi?.profileLoaded || !profile) checks.push('DIM has not loaded tags and loadouts yet.');
     if (!native) checks.push('In-game loadouts could not be verified.');
     if (!rows.length) checks.push('The weapon inventory is empty or still loading.');
     return { items: rows, characters: chars, canTransfer: !checks.length, warnings: checks, at: Date.now(), accountKey: key, source: 'live' };
+  }
+  function refreshControl() {
+    return [...document.querySelectorAll('button[aria-keyshortcuts]')].find(el =>
+      el.getAttribute('aria-keyshortcuts')?.toUpperCase() === 'R' && typeof fiber(el)?.memoizedProps?.onClick === 'function'
+    );
+  }
+  async function refreshInventory() {
+    if (refreshing) return refreshing;
+    refreshing = (async () => {
+      const store = getStore(), before = store.getState(), accountKey = accountKeyFor(before);
+      const button = refreshControl();
+      if (!button || button.disabled || button.classList.contains('disabled')) throw new Error('DIM refresh is unavailable. Use DIM’s refresh button, then try again.');
+      button.click();
+      let sawSpinner = false;
+      const deadline = Date.now() + 25000;
+      while (Date.now() < deadline) {
+        const current = store.getState();
+        if (accountKeyFor(current) !== accountKey) throw new Error('The DIM account changed during refresh. Review your selection again.');
+        if (current.inventory?.profileError && current.inventory.profileError !== before.inventory?.profileError) throw new Error('DIM could not refresh from Bungie. Try Refresh inventory again.');
+        const spinning = Boolean(refreshControl()?.querySelector('.fa-spin'));
+        sawSpinner ||= spinning;
+        // An unchanged Bungie response need not replace stores. DIM's spinner
+        // still provides a completion signal for that successful refresh.
+        if (!spinning && (sawSpinner || current.inventory?.stores !== before.inventory?.stores)) return snapshot();
+        await delay(100);
+      }
+      throw new Error('DIM has not finished refreshing. Wait for its refresh to finish, then try again.');
+    })();
+    try { return await refreshing; } finally { refreshing = null; }
   }
   function search(ids) {
     getStore().dispatch({ type: 'shell/SEARCH_QUERY', payload: { query: C.exactSearch(ids), updateVersion: true } });
@@ -125,17 +183,34 @@
       if (action === 'stop') { stopped = true; emit('reply', { requestId, data: { stopped: true } }); return; }
       if (running) throw new Error('A batch is running. Wait or click Stop.');
       if (action === 'snapshot') { emit('reply', { requestId, data: snapshot() }); return; }
+      if (action === 'refresh') { emit('reply', { requestId, data: await refreshInventory() }); return; }
       if (action === 'search') { search(payload.ids || []); emit('reply', { requestId, data: { ok: true } }); return; }
       if (action === 'prepare') {
-        const snap = snapshot();
+        let snap = snapshot();
         if (!snap.canTransfer) throw new Error(snap.warnings.join(' '));
-        const target = snap.characters.find(c => c.id === payload.targetId);
+        let target = snap.characters.find(c => c.id === payload.targetId);
         const mode = payload.mode === 'manual' ? 'manual' : 'clean';
         const batchMode = payload.batchMode === 'total' ? 'total' : 'slot';
-        const result = C.planBatch(snap.items, payload.grades || {}, payload.ids || [], target, payload.categories || [], payload.limit, payload.reserve, mode, batchMode);
-        if (!result.batch.length) throw new Error('No eligible selected weapons have space available for this batch.');
+        const plan = () => C.planBatch(snap.items, payload.grades || {}, payload.ids || [], target, payload.categories || [], payload.limit, payload.reserve, mode, batchMode);
+        let result = plan();
+        // Dismantling in-game may leave DIM's cached inventory full. Refresh once
+        // before refusing an otherwise eligible selection for lack of space.
+        if (!result.batch.length && result.skipped.some(item => item.reason === 'No space in this slot.') && refreshControl()) {
+          const accountKey = snap.accountKey;
+          snap = await refreshInventory();
+          if (snap.accountKey !== accountKey) throw new Error('The DIM account changed. Review your selection again.');
+          if (!snap.canTransfer) throw new Error(snap.warnings.join(' '));
+          target = snap.characters.find(c => c.id === payload.targetId);
+          result = plan();
+        }
+        if (!result.batch.length) {
+          if (result.skipped.length && result.skipped.every(item => /protected|cannot be transferred/.test(item.reason))) throw new Error('The selected copies are no longer eligible in this transfer mode. Refresh inventory and review your selection.');
+          if (result.skipped.some(item => item.reason === 'Capacity could not be verified.')) throw new Error('DIM slot capacity could not be verified. Refresh DIM and prepare the batch again.');
+          const spaces = Object.keys(target.capacity || {}).map(bucket => `${snap.items.find(i => i.bucket === bucket)?.bucketName || bucket}: ${C.freeSpaces(target, bucket, payload.reserve) ?? 'unverified'}`).join(' · ');
+          throw new Error(`None of the selected weapons fit in ${target.name}. Free spaces: ${spaces}.`);
+        }
         prepared = { ...payload, mode, batchMode, ids: result.batch.map(i => i.id), accountKey: snap.accountKey, token: crypto.randomUUID(), expires: Date.now() + 120000 };
-        emit('reply', { requestId, data: { token: prepared.token, batch: result.batch, target, skipped: result.skipped, counts: result.counts, mode, batchMode } }); return;
+        emit('reply', { requestId, data: { token: prepared.token, batch: result.batch, target, skipped: result.skipped, counts: result.counts, mode, batchMode, snapshot: snap } }); return;
       }
       if (action === 'transfer') {
         const plan = prepared; prepared = null;
@@ -148,7 +223,7 @@
             const item = snapshot().items.find(i => i.id === id);
             emit('progress', { data: { moved, total: plan.ids.length, name: item?.name || id } });
             await moveOne(id, plan.targetId, plan); moved++;
-            emit('progress', { data: { moved, total: plan.ids.length, name: item?.name || id, completedId: id } });
+            emit('progress', { data: { moved, total: plan.ids.length, name: item?.name || id, completedId: id, snapshot: snapshot() } });
             await delay(350);
           }
           emit('reply', { requestId, data: { moved, stopped, snapshot: snapshot() } });

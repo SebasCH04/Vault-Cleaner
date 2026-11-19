@@ -79,11 +79,15 @@
   function canSelect(item, grades, categories, mode = 'clean', now = Date.now()) {
     return mode === 'manual' ? transferReasons(item).length === 0 : Boolean(eligible(item, grades, categories, now));
   }
+  function freeSpaces(target, bucket, reserve = false) {
+    const capacity = target?.capacity?.[bucket], occupied = target?.occupied?.[bucket];
+    if (!Number.isInteger(capacity) || capacity < 0 || !Number.isInteger(occupied) || occupied < 0) return null;
+    return Math.max(0, capacity - occupied - (reserve ? 1 : 0));
+  }
   function planBatch(items, grades, selectedIds, target, categories, limit = 9, reserve = false, mode = 'clean', batchMode = 'slot') {
     if (!target || target.isVault) throw new Error('Select a character.');
     const totalMode = batchMode === 'total';
     const max = Math.max(1, Math.min(totalMode ? 27 : 9, Math.floor(Number(limit) || 9)));
-    const keep = reserve ? 1 : 0;
     const selected = new Set(selectedIds.map(normalizeId).filter(Boolean));
     const used = Object.create(null);
     const batch = [];
@@ -91,10 +95,9 @@
     for (const item of items) {
       if (!selected.has(item.id)) continue;
       if (!canSelect(item, grades, categories, mode)) { skipped.push({ id: item.id, reason: mode === 'manual' ? 'This copy cannot be transferred from the vault.' : 'This copy is now protected or has no valid maximum.' }); continue; }
-      const capacity = target.capacity?.[item.bucket];
-      const occupied = target.occupied?.[item.bucket];
-      if (!Number.isInteger(capacity) || !Number.isInteger(occupied)) { skipped.push({ id: item.id, reason: 'Capacity could not be verified.' }); continue; }
-      const remaining = Math.max(0, capacity - occupied - keep - (used[item.bucket] || 0));
+      const free = freeSpaces(target, item.bucket, reserve);
+      if (free === null) { skipped.push({ id: item.id, reason: 'Capacity could not be verified.' }); continue; }
+      const remaining = Math.max(0, free - (used[item.bucket] || 0));
       if (!remaining) { skipped.push({ id: item.id, reason: 'No space in this slot.' }); continue; }
       if ((used[item.bucket] || 0) >= (totalMode ? 9 : max) || batch.length >= (totalMode ? max : 27)) { skipped.push({id:item.id,reason:'Batch limit reached.'}); continue; }
       used[item.bucket] = (used[item.bucket] || 0) + 1;
@@ -107,7 +110,7 @@
     if (!safe.length) throw new Error('No weapons selected.');
     return `(${safe.map(id => `id:${id}`).join(' or ')})`;
   }
-  const api = { normalizeId, normalizeGrade, gradeOrder, extractGrades, gradeDetails, gradeFor, transferReasons, reasons, eligible, canSelect, planBatch, exactSearch, MAX_GRADE_AGE };
+  const api = { normalizeId, normalizeGrade, gradeOrder, extractGrades, gradeDetails, gradeFor, transferReasons, reasons, eligible, canSelect, freeSpaces, planBatch, exactSearch, MAX_GRADE_AGE };
   root.VaultCore = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(globalThis);
