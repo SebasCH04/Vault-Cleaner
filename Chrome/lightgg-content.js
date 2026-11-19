@@ -514,7 +514,7 @@
     }
   }
   function diagnostic() {
-    const report = { version: browser.runtime.getManifest?.().version || '0.3.6', captureBasis, confirmedMaxima:maximumIds.size,
+    const report = { version: browser.runtime.getManifest?.().version || '0.3.7', captureBasis, confirmedMaxima:maximumIds.size,
       maximumOverallScores:new Set([...overallIds,...nativeOverallIds]).size,
       appraisal:{...nativeSummary,maximumScores:nativeOverallIds.size,model:modelSummary}, page: location.pathname, state: stopped ? 'stopped' : scanning ? 'scanning' : 'idle', capturedThisSession: seen.size, saved: count, counters: stats, samples, limits: { maxCardNodes: MAX_CARD_NODES, maxAncestors: MAX_ANCESTORS, sliceMs: SLICE_MS } };
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));

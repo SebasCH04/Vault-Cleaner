@@ -3,7 +3,14 @@
   const C = globalThis.VaultCore;
   const esc = text => String(text ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const icon = (name) => {
-    const paths = { vault: '<path d="M4 8l8-5 8 5v9l-8 4-8-4zM4 8l8 5 8-5M12 13v8"/>', refresh:'<path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0113 4M18 18a8 8 0 01-13-4"/>', arrow:'<path d="M5 12h14M13 6l6 6-6 6"/>', shield:'<path d="M12 3l8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM8 12l3 3 5-6"/>', weapon:'<path d="M4 6h13l3 3-3 3H8l-2 6H3l2-8M10 12v4h4l2-4M17 6V3"/>' };
+    const paths = {
+      vault: '<path d="M4 8l8-5 8 5v9l-8 4-8-4zM4 8l8 5 8-5M12 13v8"/>',
+      sync: '<path d="M7.5 17H6a4 4 0 1 1 .8-7.9 5.5 5.5 0 0 1 10.5 1.1 3.5 3.5 0 1 1 1.2 6.8h-2M12 12v9m-3-3 3 3 3-3"/>',
+      refresh: '<path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0113 4M18 18a8 8 0 01-13-4"/>',
+      arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+      shield: '<path d="M12 3l8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM8 12l3 3 5-6"/>',
+      weapon: '<path d="M4 6h13l3 3-3 3H8l-2 6H3l2-8M10 12v4h4l2-4M17 6V3"/>'
+    };
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.vault}</svg>`;
   };
   globalThis.mountVaultCleaner = function (host, cssURL, adapter, standalone = false) {
@@ -11,15 +18,19 @@
     const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = cssURL; root.append(link);
     const shell = document.createElement('div'); shell.className = standalone ? 'standalone' : '';
     shell.innerHTML = `<div class="app">
-<header class="head"><div class="brand"><div class="logo">${icon('vault')}</div><div><h1>Vault Cleaner</h1><p>DESTINY 2</p></div></div>${standalone ? '' : '<button class="quiet" id="close" aria-label="Close panel">✕</button>'}</header>
+<header class="head">
+  <div class="brand"><div class="logo">${icon('vault')}</div><div><h1>Vault Cleaner</h1><p>DESTINY 2</p></div></div>
+  <div class="head-actions">
+    <button type="button" class="quiet" id="sync" aria-label="Sync light.gg" title="Sync light.gg">${icon('sync')}</button>
+    <button type="button" class="quiet" id="refresh" aria-label="Refresh inventory" title="Refresh inventory">${icon('refresh')}</button>
+    ${standalone ? '' : '<button type="button" class="quiet" id="close" aria-label="Close panel" title="Close panel">✕</button>'}
+  </div>
+</header>
 <nav class="inventory-picker" id="inventory-picker" aria-label="Inventory type"><button data-kind="weapons" class="active" aria-pressed="true">Weapons</button><button data-kind="armor" aria-pressed="false">Armor</button></nav>
 <div class="scroll"><aside class="left">
 <div class="intro"><p class="eyebrow">YOUR NEXT CLEANUP</p><h2>Make room<br>for what's next.</h2><p class="muted" id="intro-copy">Choose ranks. Review your weapons.<br>Transfer them in batches.</p></div>
 <div class="stats"><div class="stat"><div><b id="rated">—</b><span id="rated-label">Confirmed max</span><div class="progress"><i id="coverage"></i></div></div></div><div class="stat"><div><b id="total">—</b><span id="total-label">Total weapons</span></div></div><div class="stat"><div><b id="candidates">—</b><span id="candidate-label">Vault candidates</span></div></div></div>
-<div class="inventory-actions">
-  <div class="top-actions"><button id="refresh">${icon('refresh')}Refresh inventory</button><button id="sync" class="quiet">Sync light.gg</button></div>
-  <p id="sync-status" class="hidden"><span role="status" id="sync-progress"></span> <a id="sync-login" class="hidden" href="https://www.light.gg/god-roll/roll-appraiser/" target="_blank" rel="noopener">Open light.gg ↗</a></p>
-</div>
+<p id="sync-status" class="hidden"><span role="status" id="sync-progress"></span> <a id="sync-login" class="hidden" href="https://www.light.gg/god-roll/roll-appraiser/" target="_blank" rel="noopener">Open light.gg ↗</a></p>
 <div id="weapon-ranks"><div class="section-title"><h3>Maximum popularity</h3><span>light.gg · Vault</span></div><div class="grades" id="grades"></div>
 <details class="rank-guide">
   <summary>Rank filters and protections</summary>
