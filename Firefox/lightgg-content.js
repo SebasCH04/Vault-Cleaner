@@ -13,10 +13,25 @@
   let walk, processedRoots, scanIds, session = 0;
   let stats = {}, samples = { identifiers: [], markers: [], labels: [] };
 
+  function identityAttribute(attr) {
+    // A long number in a perk icon filename is an asset hash, not a copy ID.
+    // Accept structural IDs and plain data attributes, never URLs or metadata.
+    const name = attr.name;
+    if (name !== 'id' && !name.startsWith('data-')) return false;
+    if (name.startsWith('data-vc-') || /owner|character|membership|account/.test(name)) return false;
+    if (/(?:^|[-_])(?:src|href|url|uri|icon|image|thumbnail|background|tooltip|title|perk|plug|socket|hash|grade|quality|rank|timestamp)(?:$|[-_])/.test(name)) return false;
+    return attr.value.length <= 768 && !/[\/\\:]/.test(attr.value);
+  }
+  function assetIdentifiersAt(node) {
+    return Array.from(node.attributes || []).slice(0,32).filter(attr =>
+      (['src','href','srcset','style'].includes(attr.name) || /^data-.*(?:src|href|url|icon|image|thumbnail|background)/.test(attr.name)) &&
+      attr.value.length <= 768 && /(?<!\d)\d{18,20}(?!\d)/.test(attr.value)
+    ).map(attr => attr.name);
+  }
   function idsAt(node) {
     const ids = new Set();
     for (const attr of Array.from(node.attributes || []).slice(0, 32)) {
-      if (attr.name.startsWith('data-vc-') || attr.value.length > 768 || attr.name.startsWith('on') || attr.name === 'value' || /owner|character|membership|account/.test(attr.name)) continue;
+      if (!identityAttribute(attr)) continue;
       for (const match of attr.value.matchAll(/(?<!\d)\d{18,20}(?!\d)/g)) { ids.add(match[0]); identityAttributes.add(attr.name); }
     }
     return ids;
@@ -69,7 +84,7 @@
     return null;
   }
   function description(node) {
-    return { tag: node.tagName, classes: (node.getAttribute('class') || '').slice(0, 180), idAttribute: (node.id || '').replace(/\d{18,20}/g, id => '…' + id.slice(-8)).slice(0, 100), instanceAttributes: Array.from(node.attributes || []).filter(attr => /\d{18,20}/.test(attr.value) && attr.name !== 'value' && !attr.name.startsWith('on')).map(attr => attr.name).slice(0, 10) };
+    return { tag: node.tagName, classes: (node.getAttribute('class') || '').slice(0, 180), idAttribute: (node.id || '').replace(/\d{18,20}/g, id => '…' + id.slice(-8)).slice(0, 100), instanceAttributes: Array.from(node.attributes || []).filter(attr => identityAttribute(attr) && /\d{18,20}/.test(attr.value)).map(attr => attr.name).slice(0, 10), ignoredAssetAttributes: assetIdentifiersAt(node).slice(0,10) };
   }
   function sampleIdentifier(node) {
     if (samples.identifiers.length >= 5) return;
@@ -147,6 +162,7 @@
     while (node) {
       if (bar.contains(node)) { node = tree.nextNode(); continue; }
       stats.elements++;
+      stats.ignoredAssetIdentifiers += assetIdentifiersAt(node).length;
       const ids = idsAt(node), marker = readMarker(node);
       if (node.matches(MARKERS)) {
         stats.labelCandidates++;
@@ -189,7 +205,7 @@
     scanTimer = null;
     if (stopped || scanning) return;
     dirty = false; lastScan = performance.now(); scanning = true;
-    stats = { elements: 0, ids: 0, markers: 0, labelCandidates: 0, ambiguous: 0, tooLarge: 0, conflictingGrades: 0, noGrade: 0 };
+    stats = { elements: 0, ids: 0, ignoredAssetIdentifiers: 0, markers: 0, labelCandidates: 0, ambiguous: 0, tooLarge: 0, conflictingGrades: 0, noGrade: 0 };
     samples = { identifiers: [], markers: [], labels: [] };
     processedRoots = new WeakSet(); scanIds = new Set(); walk = scanPage();
     update(true); sliceTimer = setTimeout(slice, 0);
@@ -238,7 +254,7 @@
     }
   }
   function diagnostic() {
-    const report = { version: '0.1.9', captureBasis, confirmedMaxima:maximumIds.size, page: location.pathname, state: stopped ? 'stopped' : scanning ? 'scanning' : 'idle', capturedThisSession: seen.size, saved: count, counters: stats, samples, limits: { maxCardNodes: MAX_CARD_NODES, maxAncestors: MAX_ANCESTORS, sliceMs: SLICE_MS } };
+    const report = { version: '0.1.10', captureBasis, confirmedMaxima:maximumIds.size, page: location.pathname, state: stopped ? 'stopped' : scanning ? 'scanning' : 'idle', capturedThisSession: seen.size, saved: count, counters: stats, samples, limits: { maxCardNodes: MAX_CARD_NODES, maxAncestors: MAX_ANCESTORS, sliceMs: SLICE_MS } };
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'Vault-Cleaner-diagnostics.json';
     bar.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
