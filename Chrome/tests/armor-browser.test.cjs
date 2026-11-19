@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const {chromium} = require('playwright');
-const m = require('./browser-engine.cjs'), engine = m.default || m;
+const m = require('@sparticuz/chromium'), engine = m.default || m;
 const root = path.resolve(__dirname,'..');
 (async()=>{
   const browser=await chromium.launch({executablePath:await engine.executablePath(),args:engine.args,headless:true});
@@ -44,6 +44,7 @@ const root = path.resolve(__dirname,'..');
     await page.locator('#cancel-plan').click();
     await page.locator('#query').fill('');
     await page.locator('#select-visible').click();assert.equal(await page.locator('#selected-count').textContent(),'5');
+    await page.locator('#batch-controls > summary').click();
     await page.locator('#batch-mode').selectOption('total');assert.equal(await page.locator('#limit').getAttribute('max'),'45');
     assert.equal(await page.locator('#space-detail').isVisible(),false);
     await page.locator('#prepare').click();

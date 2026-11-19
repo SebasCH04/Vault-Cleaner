@@ -8,17 +8,23 @@ A Firefox extension with Weapons and Armor panels inside DIM and an offline inte
 2. Open `about:debugging#/runtime/this-firefox` in Firefox.
 3. Remove the previous temporary Vault Cleaner extension, if installed.
 4. Click **Load Temporary Add-on** and select `manifest.json` in the extracted folder.
-5. Check version **0.3.1** in Firefox's extension details, then reload **DIM and light.gg** to replace their previous scripts. The panel itself does not show a version badge.
+5. Check version **0.3.6** in Firefox's extension details, then reload **DIM**. Reload any already-open Roll Appraiser tab if you use it.
 6. Open DIM and click **Vault Cleaner** in the bottom-right corner.
 
 Temporary Firefox extensions must be loaded again after restarting Firefox. No Aegis extension is required. This package does not bundle Aegis.
 
-## Confirm maximum ranks
+## Automatic light.gg sync
 
-1. Click **Sync light.gg** in the panel.
+Opening Vault Cleaner shows saved ratings immediately and starts a background sync when DIM's inventory is ready. The extension opens a light.gg tab without switching away from DIM. It reads the Roll Appraiser's maximum ranks and Overall from its inventory model, updates the panel automatically, and closes the tab it opened. Successful automatic syncs pause for 15 minutes before checking again. **Sync light.gg** starts another check on demand.
+
+If the light.gg session has expired, the panel offers a link to the Roll Appraiser for sign-in. The extension matches exact weapon IDs from the current DIM inventory. If none match, check that light.gg is using the same account and platform. Saved ratings stay available if a sync is interrupted or times out.
+
+## Manual capture in the Roll Appraiser
+
+1. Open the light.gg Roll Appraiser in Firefox.
 2. In light.gg, choose **Settings → Popularity Rank Display → Best Available**.
-3. Wait for the displayed ranks to update. In the capture bar, check **I am viewing Best Available**.
-4. Let capture finish, return to DIM and click **Refresh inventory**.
+3. Wait for the displayed ranks to update. Open the compact capture panel at the bottom left, then check **I am viewing Best Available**.
+4. Let capture finish and return to DIM. Vault Cleaner updates the saved ratings automatically.
 
 This confirmation applies only to that light.gg tab and resets when the page reloads. Uncheck it if you change the rank display to Equipped. Explicit maximum markers and visible **↑ S Rank Possible** labels can also confirm a maximum without this checkbox.
 
@@ -29,6 +35,8 @@ Capture is read-only. Apply popular perks yourself in light.gg. The extension ha
 ## Batch sizing
 
 **Batch sizing** is separate from **Transfer mode**. Both sizing options work with cleanup and manual transfer.
+
+Open **Transfer batch** at the bottom of the DIM panel to see the destination, sizing controls, capacity and **Prepare batch**. Close it to give the inventory more room. Its summary shows the number of selected copies.
 
 | Batch sizing | Limit of 9 | Limit of 3 |
 | --- | --- | --- |
@@ -70,12 +78,12 @@ Open **Weapons → Duplicates**, or choose **Duplicate cleanup** in Transfer mod
 Copies are grouped by their **exact weapon definition and slot**. Different definitions with the same name are separate. The keeper is chosen by:
 
 1. Highest fresh confirmed **maximum rank**, using the full order **S+ > S > S− > A+ > A > A− > B+ > B > B− > C+ > C > C− > D+ > D > D− > F+ > F > F−**.
-2. Highest confirmed **maximum Overall percentage**, only within the same exact rank. An A+ outranks an A regardless of their percentages.
-3. **Your choice** when top copies have equal rank and Overall, or the percentages needed to compare them are missing. Open **Ties**, or click **Choose keeper** on a tied row. Select the exact copy to retain. Eligible remaining copies then enter duplicate cleanup. The choice is saved locally and ignored if the chosen copy disappears or a better confirmed copy is found.
+2. Best confirmed **maximum Overall**, when copies share the same exact rank and the scores use the same source scale. A higher rating out of 10 is better. An A+ outranks an A regardless of their Overall.
+3. **Your choice** when top copies share a rank and their Overall scores are equal, unavailable or on different scales. Open **Ties**, or click **Choose keeper** on a tied row. Select the exact copy to retain. Eligible remaining copies then enter duplicate cleanup. The choice is saved locally and ignored if the chosen copy disappears or a better confirmed copy is found.
 
 Different perks, masterworks, Power, tier or stat distributions do not keep a lower-ranked copy out of this weapon cleanup. Optional perk metadata is used for search and comparison, not eligibility. Locked, favorite/keep/archive, loadout, equipped, exotic, crafted/enhanced and Deepsight copies remain protected. A verified character-held copy may be the keeper; only transferable vault copies enter the batch. Unconfirmed, expired or contradictory maxima stay out of duplicate cleanup.
 
-Each candidate has **Compare**, showing current and maximum ranks, maximum Overall, optional perk/masterwork details and the exact retained ID. Missing Overall is shown as **Not captured** and never inferred from individual perks, Trait Combo or bars. Sync while viewing **Best Available** to capture the percentage for the maximum. Current and maximum Overall are stored separately, bound to their respective exact grades, and expire independently after 48 hours. A visible possible-rank arrow can confirm a maximum but does not confirm its Overall percentage.
+Each candidate has **Compare**, showing current and maximum ranks, maximum Overall, optional perk/masterwork details and the exact retained ID. Vault Cleaner reads light.gg's **BestAvgRank** for the exact copy and displays it as a rating from **0.0 to 10.0**. The display reverses the native scale, assigning 10.0 to a native rank of −0.25 and 0.0 to a native rank of 8. The comparison uses the exact native value, so two displayed ratings can look equal after rounding and still have a verified winner. Labelled percentages and raw scores from responses remain available as fallback sources. Overall is stored with its grade and expires independently after 48 hours.
 
 **Select visible** adds all currently eligible visible copies to the selection; clicking it again keeps them selected. The header checkbox can clear the visible selection. Tied contenders stay unselected until you choose their keeper. The list shows visible, selected and selectable counts, plus groups needing a choice. With no selectable copies, the select button is disabled.
 
@@ -113,9 +121,9 @@ The panel search filters weapon names and perks as you type. Keyboard events ins
 
 ## Capture controls and diagnostics
 
-Capture reads bounded card sections incrementally. Instance IDs come from structural card IDs and plain identity data attributes; long numbers in perk-image filenames, links and styling are excluded. Numeric asset identifiers are counted separately in diagnostics, preventing enhanced-perk icons from making an otherwise valid card look like multiple weapon copies. **Stop capture** and **Resume capture** control the scanner. If capture stays at zero, wait for **Capture complete**; if ranks still do not appear, use **Diagnostics** to download `Vault-Cleaner-diagnostics.json`.
+Capture reads bounded card sections incrementally. Instance IDs come from structural card IDs and plain identity data attributes; long numbers in perk-image filenames, links and styling are excluded. Numeric asset identifiers are counted separately in diagnostics, preventing enhanced-perk icons from making an otherwise valid card look like multiple weapon copies. The compact panel shows counts for confirmed maxima and Overall percentages. Expand it for **Stop capture**, **Resume capture** and **Diagnostics**. If ranks still do not appear after **Capture complete**, use **Diagnostics** to download `Vault-Cleaner-diagnostics.json`.
 
-Diagnostics contain counters and limited marker/attribute samples, with no complete HTML, scripts, form values or session data. They are downloaded locally and are not sent automatically.
+If Overall remains at zero, **Diagnostics** reports whether the Roll Appraiser model was found and how many copies it contained. It also reports the count of appraisal responses and the names of score-related fields. The report includes limited marker and attribute samples and is downloaded locally. It omits response contents, session data and form values.
 
 ## Offline demo
 

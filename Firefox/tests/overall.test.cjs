@@ -37,12 +37,18 @@ const root=path.resolve(__dirname,'..');
    '<span data-best-grade="S" data-best-overall="101"></span>',
    '<span data-best-grade="S-" data-best-overall="94" data-current-overall="20"></span>',
    '<span data-current-grade="C"></span><span data-best-grade="A"></span><span>Current Overall: 50%</span><span>Best Available Overall: 86.1%</span>',
-   '<span class="quality">B</span><span>Overall: -5%</span>'
+   '<span class="quality">B</span><span>Overall: -5%</span>',
+   '<span class="quality">S</span><div><span>Overall</span><span>S<span>＋</span><i data-original-title="96.8%"></i></span></div><div>Individual Perks A+</div><div>Trait Combo S-</div>',
+   '<span class="quality">S</span><div><span>Overall</span><span>S−</span><b data-percentage="99"></b></div>',
+   '<img src="/quality-splus-text.svg" alt="Popularity rank (S)">',
+   '<svg><use href="#quality-s%2D-text"></use></svg>',
+   '<span class="quality">S</span><div><span>Overall</span><span>S+</span><i style="display:inline-block;width:98%"> </i></div>',
+   '<span class="quality">S</span><div><span>Overall</span><span>S+</span><meter value="88" max="100"></meter></div>'
   ];
   await page.setContent('<main>'+cards.map((c,n)=>`<article data-id="${iid(n+1)}">${c}<button onclick="window.perkClicks++">Change perks</button></article>`).join('')+'</main>');
   await page.evaluate(()=>{window.saved={};window.perkClicks=0;window.browser={runtime:{sendMessage:async m=>{Object.assign(saved,m.grades);return {total:Object.keys(saved).length};}}};});
   await page.addScriptTag({path:root+'/core.js'});await page.addScriptTag({path:root+'/lightgg-content.js'});
-  await page.waitForFunction(()=>Object.keys(saved).length===11);
+  await page.waitForFunction(n=>Object.keys(saved).length===n,cards.length);
   let captured=await page.evaluate(()=>saved);
   assert.equal(captured[iid(1)].bestGrade,'S');assert.equal(captured[iid(1)].currentOverall,42);assert.equal(captured[iid(1)].bestOverall,undefined);
   assert.equal(captured[iid(2)].bestOverall,90.5);assert.equal(captured[iid(2)].currentOverall,0);
@@ -52,9 +58,26 @@ const root=path.resolve(__dirname,'..');
   assert.equal(captured[iid(8)].bestOverall,undefined);assert.equal(captured[iid(9)].bestOverall,94);
   assert.equal(captured[iid(10)].currentOverall,50);assert.equal(captured[iid(10)].bestOverall,86.1);
   assert.equal(captured[iid(11)].currentOverall,undefined);assert.equal(await page.evaluate(()=>perkClicks),0);
+  assert.equal(await page.locator('#vc-best-mode').isVisible(),false);
+  assert.ok((await page.locator('#vc-lightgg-status').boundingBox()).width<=276);
+  await page.locator('#vc-lightgg-status > summary').click();
   await page.locator('#vc-best-mode').check();
+  assert.equal(await page.locator('#vc-best-mode').isVisible(),false);
   await page.waitForFunction(id=>saved[id].bestOverall===92.75,iid(3));
+  await page.waitForFunction(id=>saved[id].bestOverall===88,iid(17));
   captured=await page.evaluate(()=>saved);
+  assert.equal(captured[iid(12)].bestGrade,'S+');assert.equal(captured[iid(12)].bestOverall,96.8);
+  assert.equal(captured[iid(13)].bestGrade,'S-');assert.equal(captured[iid(13)].bestOverall,99);
+  assert.equal(captured[iid(14)].bestGrade,'S+');assert.equal(captured[iid(15)].bestGrade,'S-');
+  assert.equal(captured[iid(16)].bestOverall,undefined);
+  const core = require('../core.js'), compared = [12,13,14,15,16,17].map(n=>({
+    id:iid(n),name:'Aurora Dawn',hash:12345,bucket:'energy',weapon:true,owner:'vault',equipped:false,locked:false
+  }));
+  const exactGrades = Object.fromEntries(compared.map(({id})=>[id,{...captured[id],at:Date.now(),bestOverallAt:Date.now(),bestOverallGrade:captured[id].bestGrade}]));
+  const ranking = core.weaponAnalysis(compared,exactGrades).records;
+  assert.equal(ranking[iid(13)].keeperId,iid(12));
+  assert.equal(ranking[iid(16)].state,'tie');
+  assert.equal(ranking[iid(17)].keeperId,iid(12));
   assert.equal(captured[iid(1)].bestOverall,undefined);assert.equal(captured[iid(1)].bestGrade,'S');
   // A possible S must never borrow the percentage displayed for C.
   assert.equal(captured[iid(4)].bestOverall,undefined);assert.equal(captured[iid(5)].bestOverall,undefined);

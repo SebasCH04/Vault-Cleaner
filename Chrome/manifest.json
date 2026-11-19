@@ -1,10 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "Vault Cleaner \u00b7 Destiny 2",
-  "version": "0.3.1",
+  "name": "Vault Cleaner · Destiny 2",
+  "version": "0.3.6",
+  "icons": {
+    "128": "icons/vault-cleaner-128.png"
+  },
   "description": "Keep the highest-ranked weapon copies, review armor duplicates and sets, and transfer selected vault items in batches through DIM.",
   "permissions": [
-    "storage"
+    "storage",
+    "alarms"
   ],
   "host_permissions": [
     "https://app.destinyitemmanager.com/*",
@@ -12,7 +16,7 @@
     "https://www.light.gg/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "worker.js"
   },
   "action": {
     "default_popup": "popup.html",
@@ -37,6 +41,7 @@
         "https://beta.destinyitemmanager.com/*"
       ],
       "js": [
+        "chrome-api.js",
         "core.js",
         "ui.js",
         "dim-content.js"
@@ -49,6 +54,19 @@
         "https://www.light.gg/god-roll/roll-appraiser/*"
       ],
       "js": [
+        "core.js",
+        "lightgg-network.js",
+        "lightgg-model.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://www.light.gg/god-roll/roll-appraiser/*"
+      ],
+      "js": [
+        "chrome-api.js",
         "core.js",
         "lightgg-content.js"
       ],

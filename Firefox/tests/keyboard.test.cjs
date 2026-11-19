@@ -81,6 +81,7 @@ const root = path.resolve(__dirname, '..');
     assert.ok(await page.locator('#select-visible').evaluate(button => button.getRootNode().activeElement === button), 'Tab must keep native focus navigation');
     await page.locator('#select-visible').press('Enter');
     assert.equal(await page.locator('#selected-count').textContent(), '2', 'Enter must still activate buttons');
+    await page.locator('#batch-controls > summary').click();
     await page.locator('#limit').fill('2'); await page.locator('#limit').press('ArrowUp');
     assert.equal(await page.locator('#limit').inputValue(), '3', 'Number input keyboard controls must work');
     await page.locator('#reserve').focus(); await page.locator('#reserve').press('Space');

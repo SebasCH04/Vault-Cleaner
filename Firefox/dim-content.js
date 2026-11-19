@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const pending = new Map();
-  let onProgress = () => {}, onGrades = () => {}, onInventory = () => {};
+  let onProgress = () => {}, onGrades = () => {}, onInventory = () => {}, onAutoSync = () => {};
   document.addEventListener('vault-cleaner-response', event => {
     let message; try { message = JSON.parse(event.detail); } catch { return; }
     if (message.kind === 'progress') { onProgress(message.data); return; }
@@ -27,11 +27,24 @@
     prepare: payload => rpc('prepare', payload), transfer: token => rpc('transfer', { token }),
     stop: () => rpc('stop'), search: ids => rpc('search', { ids }),
     sync: () => browser.runtime.sendMessage({ type: 'open-sync' }),
+    autoSync: (snapshot,force) => browser.runtime.sendMessage({
+      type:'vc-auto-sync-start',account:snapshot.accountKey,force,ids:snapshot.items.filter(item=>item.weapon).map(item=>item.id)
+    }),
+    onAutoSyncChanged: callback => {onAutoSync = callback;},
     onProgress: callback => { onProgress = callback; }, onGradesChanged: callback => { onGrades = callback; }, onInventoryChanged: callback => { onInventory = callback; }
   };
-  browser.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.vcGrades) onGrades(); });
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes.vcGrades) onGrades(changes.vcGrades.newValue || {});
+    if (changes.vcAutoSyncStatus) onAutoSync(changes.vcAutoSyncStatus.newValue);
+  });
   const toggle = document.createElement('button'); toggle.textContent = '◇  Vault Cleaner';
-  Object.assign(toggle.style, { position: 'fixed', right: '22px', bottom: '22px', zIndex: '2147483600', padding: '12px 18px', color: '#14210e', background: '#bbec84', border: '1px solid #d4ffaf', borderRadius: '10px', boxShadow: '0 5px 24px #0008', font: '600 13px system-ui', cursor: 'pointer' });
+  Object.assign(toggle.style, {
+    position: 'fixed', right: '22px', bottom: '22px', zIndex: '2147483600',
+    padding: '10px 16px', color: '#182619', background: '#b9e68e',
+    border: '1px solid #ceefa9', borderRadius: '12px', boxShadow: '0 4px 18px #050b1099',
+    font: '650 13px system-ui', cursor: 'pointer'
+  });
   document.body.append(toggle);
   let host = null, panel = null;
   toggle.onclick = () => {

@@ -10,7 +10,7 @@
   }
   function normalizeGrade(value) {
     if (typeof value !== 'string') return null;
-    const grade = value.trim().toUpperCase();
+    const grade = value.trim().toUpperCase().replace(/\s*([−–‑-]|[+＋])$/, (_, sign) => /[+＋]/.test(sign) ? '+' : '-');
     return GRADE.test(grade) ? grade : null;
   }
   function normalizeOverall(value) {
@@ -19,6 +19,13 @@
   }
   function gradeOrder(grade) {
     return 'SABCDF'.indexOf(grade[0]) * 3 + (grade.endsWith('+') ? 0 : grade.endsWith('-') ? 2 : 1);
+  }
+  function lightggAverageGrade(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < -0.25 || value > 8) return null;
+    const band = Math.min(5,Math.max(0,Math.ceil(value - 0.5)));
+    const distance = band + 0.5 - value;
+    const step = band === 0 ? 0.125 : 0.25;
+    return 'SABCDF'[band] + (distance >= 3 * step ? '+' : distance >= step ? '' : '-');
   }
   function extractGrades(data) {
     const result = Object.create(null);
@@ -49,12 +56,24 @@
     if (!record || !Number.isFinite(record.at) || now - record.at > MAX_GRADE_AGE || record.at > now + 60000) return null;
     const fresh = at => Number.isFinite(at) && now-at <= MAX_GRADE_AGE && at <= now+60000;
     const shown = normalizeGrade(record.grade);
-    const current = fresh(record.currentAt ?? record.at) ? normalizeGrade(record.currentGrade) || (record.basis !== 'best' ? shown : null) : null;
+    let current = fresh(record.currentAt ?? record.at) ? normalizeGrade(record.currentGrade) || (record.basis !== 'best' ? shown : null) : null;
     const best = fresh(record.bestAt ?? record.at) ? normalizeGrade(record.bestGrade) : null;
+    if (current && best && gradeOrder(best) > gradeOrder(current) && record.bestOverallScale === 'lightgg-average-rank' &&
+        record.bestOverallSource === 'appraisal-model' && fresh(record.bestOverallAt) && lightggAverageGrade(record.bestOverall) === best &&
+        record.currentOverallSource !== 'appraisal-model') current = null;
     const conflict = Boolean(current && best && gradeOrder(best) > gradeOrder(current));
-    const score = (role,grade)=>grade && record[role+'OverallGrade'] === grade && fresh(record[role+'OverallAt']) ? normalizeOverall(record[role+'Overall']) : null;
+    const score = (role,grade)=>{
+      if (!grade || record[role+'OverallGrade'] !== grade || !fresh(record[role+'OverallAt'])) return {value:null,scale:null};
+      const scale = record[role+'OverallScale'] || 'percent', value = record[role+'Overall'];
+      const valid = scale === 'percent' ? normalizeOverall(value) :
+        scale === 'lightgg-average-rank' ? lightggAverageGrade(value) === grade ? value : null :
+        typeof scale === 'string' && /^score:[a-z-]{2,90}$/.test(scale) && typeof value === 'number' &&
+        Number.isFinite(value) && value >= 0 ? value : null;
+      return {value:valid,scale:valid === null ? null : scale};
+    };
+    const currentScore = score('current',current), bestScore = score('best',conflict ? null : best);
     return { current, best: conflict ? null : best, conflict, effective: conflict ? current : best || current || shown,
-      currentOverall:score('current',current),bestOverall:conflict ? null : score('best',best) };
+      currentOverall:currentScore.value,bestOverall:bestScore.value,bestOverallScale:bestScore.scale };
   }
   function gradeFor(item, grades, now = Date.now()) { return gradeDetails(item, grades, now)?.effective || null; }
   function transferReasons(item) {
@@ -114,12 +133,19 @@
   function weaponFamily(item) {
     return item?.weapon && normalizeId(item.id) && Number.isInteger(item.hash) && item.hash > 0 && item.bucket ? JSON.stringify([item.hash,item.bucket]) : null;
   }
+  function comparePopularity(left, right) {
+    return left.rank - right.rank ||
+      (left.overall !== null && right.overall !== null && left.scale === right.scale ?
+        compareOverall(left.overall,right.overall,left.scale) : null);
+  }
+  function compareOverall(left, right, scale) {
+    return scale === 'lightgg-average-rank' ? left - right : right - left;
+  }
   function weaponCompare(a,b,grades,now = Date.now()) {
     const left = gradeDetails(a,grades,now), right = gradeDetails(b,grades,now);
     if (!left?.best || !right?.best) return null;
-    const rank = gradeOrder(left.best)-gradeOrder(right.best);
-    if (rank) return rank;
-    return left.bestOverall !== null && right.bestOverall !== null ? right.bestOverall-left.bestOverall : null;
+    return comparePopularity({rank:gradeOrder(left.best),overall:left.bestOverall,scale:left.bestOverallScale},
+      {rank:gradeOrder(right.best),overall:right.bestOverall,scale:right.bestOverallScale});
   }
   function weaponDominates(keeper,candidate,grades,now = Date.now(),allowTie = false) {
     if (!keeper || !candidate || keeper.id === candidate.id || !weaponFamily(candidate) || weaponFamily(keeper) !== weaponFamily(candidate) ||
@@ -130,42 +156,51 @@
   }
   function weaponAnalysis(items,grades,now = Date.now(),keeperChoices = {}) {
     const records = Object.create(null), families = new Map(), groups = [];
-    for (const item of items.filter(i=>i.weapon)) {
-      const protection = weaponProtection(item), key = weaponFamily(item), best = gradeDetails(item,grades,now)?.best;
+    for (const item of items) {
+      if (!item.weapon) continue;
+      const protection = weaponProtection(item), key = weaponFamily(item), details = gradeDetails(item,grades,now), best = details?.best;
       records[item.id] = {state:protection.length ? 'protected' : !key || !best ? 'review' : 'keep',
         reason:protection[0] || (!best ? 'Sync a recent confirmed maximum in light.gg' : !key ? 'Weapon identity unavailable' : 'Highest confirmed maximum for this weapon')};
       if (key && best && !item.postmaster && !item.notransfer && typeof item.equipped === 'boolean') {
         if (!families.has(key)) families.set(key,[]);
-        families.get(key).push(item);
+        families.get(key).push({item, best, rank:gradeOrder(best), overall:details.bestOverall, scale:details.bestOverallScale, protection:protection.length});
       }
     }
     for (const [key,copies] of families) {
-      const topRank = Math.min(...copies.map(i=>gradeOrder(gradeDetails(i,grades,now).best)));
-      const top = copies.filter(i=>gradeOrder(gradeDetails(i,grades,now).best) === topRank);
-      const completeOverall = top.every(i=>gradeDetails(i,grades,now).bestOverall !== null);
-      const knownScores = top.map(i=>gradeDetails(i,grades,now).bestOverall).filter(v=>v !== null);
-      const highestKnown = knownScores.length ? Math.max(...knownScores) : null;
-      const bestOverall = completeOverall ? highestKnown : null;
-      const contenders = top.filter(i=>gradeDetails(i,grades,now).bestOverall === null || gradeDetails(i,grades,now).bestOverall === highestKnown)
-        .sort((a,b)=>Number(gradeDetails(b,grades,now).bestOverall !== null)-Number(gradeDetails(a,grades,now).bestOverall !== null) ||
-          weaponProtection(b).length-weaponProtection(a).length || a.id.localeCompare(b.id));
-      const chosen = contenders.find(i=>i.id === normalizeId(keeperChoices[key])) || (contenders.length === 1 ? contenders[0] : null);
+      const topRank = Math.min(...copies.map(copy=>copy.rank));
+      const top = copies.filter(copy=>copy.rank === topRank);
+      const highestByScale = new Map();
+      for (const {scale,overall} of top) if (overall !== null) {
+        if (!highestByScale.has(scale) || compareOverall(overall,highestByScale.get(scale),scale) < 0) highestByScale.set(scale,overall);
+      }
+      const completeOverall = highestByScale.size === 1 && top.every(copy=>copy.overall !== null);
+      const bestOverall = completeOverall ? highestByScale.values().next().value : null;
+      const contenders = top.filter(copy=>copy.overall === null || copy.overall === highestByScale.get(copy.scale))
+        .sort((a,b)=>Number(b.overall !== null)-Number(a.overall !== null) || b.protection-a.protection || a.item.id.localeCompare(b.item.id));
+      const savedChoice = normalizeId(keeperChoices[key]);
+      const chosen = contenders.find(copy=>copy.item.id === savedChoice) || (contenders.length === 1 ? contenders[0] : null);
       const anchor = chosen || contenders[0];
       const needsChoice = !chosen && contenders.length > 1;
-      const group = {key,name:anchor.name || 'Weapon',itemIds:copies.map(i=>i.id),contenderIds:contenders.map(i=>i.id),
-        keeperId:chosen?.id || null,bestRank:gradeDetails(anchor,grades,now).best,bestOverall,needsChoice};
+      const contenderIds = new Set(contenders.map(copy=>copy.item.id));
+      const group = {key,name:anchor.item.name || 'Weapon',itemIds:copies.map(copy=>copy.item.id),contenderIds:[...contenderIds],
+        keeperId:chosen?.item.id || null,bestRank:anchor.best,bestOverall,needsChoice};
       groups.push(group);
-      for (const item of copies) {
+      for (const copy of copies) {
+        const {item,rank,protection} = copy;
         const record = records[item.id];record.groupKey = key;
-        if (needsChoice && contenders.includes(item)) {
+        if (needsChoice && contenderIds.has(item.id)) {
           record.needsChoice = true;
-          if (!weaponProtection(item).length) {record.state = 'tie';record.reason = completeOverall ? 'Equal maximum and overall: choose a copy to keep' : 'Same maximum; overall unavailable: choose a copy to keep';}
-        } else if (item.owner === 'vault' && !weaponProtection(item).length && weaponDominates(anchor,item,grades,now,Boolean(chosen))) {
-          record.state = 'duplicate';record.keeperId = anchor.id;
-          const comparison = weaponCompare(anchor,item,grades,now);
+          if (!protection) {record.state = 'tie';record.reason = completeOverall ? 'Equal maximum and overall: choose a copy to keep' : 'Same maximum; overall unavailable: choose a copy to keep';}
+          continue;
+        }
+        const comparison = comparePopularity(anchor,copy);
+        if (item.id !== anchor.item.id && item.owner === 'vault' && !protection &&
+            (comparison < 0 || chosen && (comparison === 0 || comparison === null))) {
+          record.state = 'duplicate';
+          record.keeperId = anchor.item.id;
           record.reason = comparison === 0 || comparison === null ? 'Your chosen copy stays; this tied copy can be removed' :
-            gradeDetails(anchor,grades,now).best === gradeDetails(item,grades,now).best ? 'Retained copy has a higher confirmed overall at the same maximum rank' : 'Retained copy has a higher confirmed maximum rank';
-        } else if (item.id === chosen?.id && record.state === 'keep') record.reason = normalizeId(keeperChoices[key]) === item.id ? 'Your chosen copy to keep' : 'Best confirmed maximum and overall for this weapon';
+            anchor.rank === rank ? 'Retained copy has a better confirmed Overall at the same maximum rank' : 'Retained copy has a higher confirmed maximum rank';
+        } else if (item.id === chosen?.item.id && record.state === 'keep') record.reason = savedChoice === item.id ? 'Your chosen copy to keep' : 'Best confirmed maximum and overall for this weapon';
       }
     }
     return {records,groups};
@@ -269,7 +304,7 @@
     if (!Number.isInteger(capacity) || capacity < 0 || !Number.isInteger(occupied) || occupied < 0) return null;
     return Math.max(0, capacity - occupied - (reserve ? 1 : 0));
   }
-  function planBatch(items, grades, selectedIds, target, categories, limit = 9, reserve = false, mode = 'clean', batchMode = 'slot', kind = 'weapons', keeperChoices = {}) {
+  function planBatch(items, grades, selectedIds, target, categories, limit = 9, reserve = false, mode = 'clean', batchMode = 'slot', kind = 'weapons', keeperChoices = {}, cachedAnalysis = null) {
     if (!target || target.isVault) throw new Error('Select a character.');
     const totalMode = batchMode === 'total';
     const totalMax = kind === 'armor' ? 45 : 27;
@@ -279,7 +314,11 @@
     const batch = [];
     const skipped = [];
     const duplicates = kind !== 'armor' && mode === 'duplicates';
-    const analysis = kind === 'armor' ? armorAnalysis(items) : duplicates ? weaponAnalysis(items,grades,Date.now(),keeperChoices) : null;
+    let analysis = cachedAnalysis;
+    if (!analysis && selected.size) {
+      if (kind === 'armor' && mode !== 'manual') analysis = armorAnalysis(items);
+      if (duplicates) analysis = weaponAnalysis(items,grades,Date.now(),keeperChoices);
+    }
     const keeperIds = new Set();
     for (const item of items) {
       if (!selected.has(item.id)) continue;
@@ -304,7 +343,7 @@
     if (!safe.length) throw new Error('No items selected.');
     return `(${safe.map(id => `id:${id}`).join(' or ')})`;
   }
-  const api = { normalizeId, normalizeGrade, normalizeOverall, gradeOrder, extractGrades, gradeDetails, gradeFor, transferReasons, reasons, eligible, canSelect, canSelectItem, weaponProtection, weaponGroup, weaponFamily, weaponCompare, weaponDominates, weaponAnalysis, armorTransferReasons, armorProtection, armorAnalysis, armorGroup, ARMOR_SLOTS, ARMOR_STATS, STAT_NAMES, CLASS_NAMES, freeSpaces, planBatch, exactSearch, MAX_GRADE_AGE };
+  const api = { normalizeId, normalizeGrade, normalizeOverall, gradeOrder, lightggAverageGrade, extractGrades, gradeDetails, gradeFor, transferReasons, reasons, eligible, canSelect, canSelectItem, weaponProtection, weaponGroup, weaponFamily, weaponCompare, weaponDominates, weaponAnalysis, armorTransferReasons, armorProtection, armorAnalysis, armorGroup, ARMOR_SLOTS, ARMOR_STATS, STAT_NAMES, CLASS_NAMES, freeSpaces, planBatch, exactSearch, MAX_GRADE_AGE };
   root.VaultCore = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(globalThis);

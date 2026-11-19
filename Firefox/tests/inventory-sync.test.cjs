@@ -115,6 +115,7 @@ const root = path.resolve(__dirname, '..');
     await page.locator('#grades button[data-grade="B"]').click();
     await page.locator('#select-visible').click();
     assert.equal(await page.locator('#selected-count').textContent(), '4');
+    await page.locator('#batch-controls > summary').click();
     await page.locator('#batch-mode').selectOption('total');
     assert.equal(await page.locator('#space-detail').isVisible(), false);
     assert.match(await page.locator('#capacity').textContent(), /^0 ready this batch · Total limit 9/);

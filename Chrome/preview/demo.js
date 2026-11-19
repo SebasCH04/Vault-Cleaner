@@ -31,7 +31,7 @@
     if(n===3)item.weaponData.masterworkType=item.weaponData.masterworkName='Stability';
     const rank=n===2 ? 'A' : 'S';
     snap.items.push(item);grades[item.id]={grade:rank,bestGrade:rank,currentGrade:n===1 ? 'C' : rank,basis:'best',at:now,source:'demo',
-      bestOverall:[95,91,87,93][n],bestOverallGrade:rank,bestOverallAt:now};
+      bestOverall:[0.14,0.32,1.1,0.21][n],bestOverallScale:'lightgg-average-rank',bestOverallGrade:rank,bestOverallAt:now};
   }
   for (let n=0;n<2;n++) {
     const item={id:String(6917530200000020010n+BigInt(n)),hash:904,name:'The Recluse',type:'Submachine gun',bucket:'kinetic',bucketName:'Kinetic',

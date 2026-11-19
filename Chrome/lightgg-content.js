@@ -1,18 +1,78 @@
 (() => {
   'use strict';
-  const browser = globalThis.chrome?.runtime ? globalThis.chrome : globalThis.browser;
   const C = globalThis.VaultCore;
-  const auto = new URLSearchParams(location.search).get('vaultcleaner') === 'sync';
+  const syncMode = new URLSearchParams(location.search).get('vaultcleaner');
+  if (syncMode === 'background') {
+    void captureInBackground().catch(()=>{});
+    return;
+  }
+  const auto = syncMode === 'sync';
   const MAX_CARD_NODES = 1500, MAX_ANCESTORS = 7, SLICE_MS = 4;
-  const seen = new Map(), pending = new Map(), maximumIds = new Set();
+  const seen = new Map(), pending = new Map(), maximumIds = new Set(), overallIds = new Set();
+  const nativeOverallIds = new Set(), nativeSignatures = new Map();
+  let nativeSummary = {responses:0,fields:[]};
+  let modelSummary = {available:false,rolls:0};
   const identityAttributes = new Set();
-  const MARKERS = '.quality, .tags, img[src*="quality-"], [data-roll-grade], [data-roll-quality], [data-grade], [data-current-grade], [data-best-grade], [data-max-grade], [title*="Best"], [title*="Maximum"], [title*="Popularity"], [title*="popularidad"]';
+  const MARKERS = '.quality, .tags, [src*="quality-" i], [href*="quality-" i], [data-src*="quality-" i], [data-roll-grade], [data-roll-quality], [data-grade], [data-current-grade], [data-best-grade], [data-max-grade]';
+  const OVERALL = /^overall(?:\s+(?:popularity|score))?\s*[:=]?$/i;
+  const OVERALL_START = /^(?:(?:best available|maximum|highest|current|equipped)\s+)?overall\b/i;
+  const OVERALL_ROW = '.overall, .overall-score, [data-popularity-overall]';
+  const LABELS = ['title','aria-label','alt','data-original-title','data-bs-original-title','data-tooltip','data-bs-title'];
+  const GRADE = '[SABCDF](?:\\s*[+＋−–‑-])?';
+  const rankInLabel = new RegExp('(?:^|\\s)(?:popularity(?: rank)?|popularidad|roll quality|best available|maximum|current|equipped)\\s*(?:[:=]\\s*|\\(\\s*|\\s+)(' + GRADE + ')(?=\\s|[),.]|$)', 'i');
+  const rankInParens = new RegExp('\\(\\s*(' + GRADE + ')\\s*\\)','i');
+  const overallGrade = new RegExp('\\boverall(?:\\s+(?:popularity|score|rank))*\\s*[:=(]?\\s*(' + GRADE + ')(?=\\s|[),.]|$)','i');
+  const possibleRank = new RegExp('\\b(' + GRADE + ')\\s+rank\\s+possible\\b','i');
   let stopped = false, count = 0, bar, label, control, observer, bestMode;
   let captureBasis = 'displayed';
-  let scanTimer, sliceTimer, saveTimer, scrollTimer;
+  let scanTimer, sliceTimer, saveTimer, scrollTimer, modelTimer;
   let scanning = false, dirty = false, lastScan = 0, lastNew = Date.now(), lastUpdate = 0;
-  let walk, processedRoots, scanIds, session = 0;
+  let walk, processedRoots, scanIds, cardEvidence, session = 0;
   let stats = {}, samples = { identifiers: [], markers: [], labels: [] };
+
+  async function captureInBackground() {
+    if (!await browser.runtime.sendMessage({type:'vc-auto-sync-ready'})) return;
+    let signature, stableSince, loginSince, sending = false;
+    const sample = async event=>{
+      if (sending || typeof event.detail !== 'string' || event.detail.length > 1500000) return;
+      let model;
+      try {model = JSON.parse(event.detail);} catch {return;}
+      if (!model) return;
+      let message;
+      if (model.signedIn === false) {
+        loginSince ??= Date.now();
+        if (Date.now()-loginSince >= 4000) message = {type:'vc-auto-sync-login'};
+      } else {
+        loginSince = undefined;
+        const grades = model.records;
+        if (model.loading || !model.available || !grades || !Object.keys(grades).length) {
+          signature = undefined;
+          return;
+        }
+        if (event.detail !== signature) {
+          signature = event.detail;
+          stableSince = Date.now();
+          return;
+        }
+        if (Date.now()-stableSince >= 6000) message = {type:'vc-auto-sync-complete',grades};
+      }
+      if (!message) return;
+      sending = true;
+      try {
+        await browser.runtime.sendMessage(message);
+        stopSampling();
+      } catch {sending = false;}
+    };
+    const request = ()=>document.dispatchEvent(new Event('vault-cleaner-appraisal-model-request'));
+    const timer = setInterval(request,2000);
+    function stopSampling() {
+      clearInterval(timer);
+      document.removeEventListener('vault-cleaner-appraisal-model',sample);
+    }
+    document.addEventListener('vault-cleaner-appraisal-model',sample);
+    addEventListener('pagehide',stopSampling,{once:true});
+    request();
+  }
 
   function identityAttribute(attr) {
     // A long number in a perk icon filename is an asset hash, not a copy ID.
@@ -31,88 +91,157 @@
   }
   function idsAt(node) {
     const ids = new Set();
-    for (const attr of Array.from(node.attributes || []).slice(0, 32)) {
+    const attrs = node.attributes;
+    for (let i = 0; i < Math.min(attrs.length,32); i++) {
+      const attr = attrs[i];
       if (!identityAttribute(attr)) continue;
       for (const match of attr.value.matchAll(/(?<!\d)\d{18,20}(?!\d)/g)) { ids.add(match[0]); identityAttributes.add(attr.name); }
     }
     return ids;
   }
-  function shortText(node) {
+  function shortText(node, separator = '') {
     let text = '';
     // Only short grade labels; never concatenate a whole card/page subtree.
     const tree = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
     let i = 0;
     for (let n = tree.nextNode(); n; n = tree.nextNode()) {
       if (i++ >= 24) return '';
-      text += n.nodeValue;
+      text += (text ? separator : '') + n.nodeValue;
       if (text.length > 192) return '';
     }
     return text.trim();
   }
-  function readMarker(node) {
-    if (!node.matches(MARKERS)) return null;
-    const title = (node.getAttribute('title') || '').slice(0, 256);
-    let source = node.getAttribute('src') || node.getAttribute('href') || '';
-    if (source.length > 768 || source.startsWith('data:')) source = '';
-    try { source = decodeURIComponent(source); } catch {}
-    const maximum = C.normalizeGrade(node.getAttribute('data-best-grade') || node.getAttribute('data-max-grade'));
-    if (maximum) return { grade: maximum, priority: 4, kind: 'best-attribute', role: 'best' };
-    const equipped = C.normalizeGrade(node.getAttribute('data-current-grade'));
-    if (equipped) return { grade: equipped, priority: 4, kind: 'current-attribute', role: 'current' };
-    const role = /best available|highest|maximum|máxim|mejor disponible/i.test(title) ? 'best' : /equipped|current|equipad|actual/i.test(title) ? 'current' : captureBasis === 'best' ? 'best' : 'current';
-    const explicit = C.normalizeGrade(node.getAttribute('data-roll-grade') || node.getAttribute('data-roll-quality'));
-    if (explicit) return { grade: explicit, priority: 3, kind: 'roll-attribute', role };
-    const titled = C.normalizeGrade(title.match(/\(([SABCDF][+-]?)\)/i)?.[1] || title.match(/(?:popularity|popularidad|roll quality|best available|maximum|current|equipped)\s*[:=-]\s*([SABCDF][+-]?)(?:\s|$)/i)?.[1]);
-    if (titled) return { grade: titled, priority: /popularity|popularidad|roll quality/i.test(title) ? 3 : 2, kind: 'title', role };
-    const sourced = C.normalizeGrade(source.match(/quality-([SABCDF][+-]?)-text\.svg/i)?.[1]);
-    if (sourced) return { grade: sourced, priority: 2, kind: 'quality-image', role };
-    if (node.matches('.quality, .tags')) {
-      const text = shortText(node);
-      const grade = C.normalizeGrade(text.split(/\s+/).at(-1));
-      if (grade) return { grade, priority: node.matches('.quality') ? 2 : 1, kind: node.matches('.quality') ? 'quality-label' : 'tags-label', role };
-    }
-    const grade = C.normalizeGrade(node.getAttribute('data-grade'));
-    return grade ? { grade, priority: 1, kind: 'grade-attribute', role } : null;
+  function displayRole(label = '') {
+    if (/best available|highest|maximum|máxim|mejor disponible/i.test(label)) return 'best';
+    if (/\bequipped\b|\bcurrent\b|equipad|\bactual\b/i.test(label)) return 'current';
+    return captureBasis === 'best' ? 'best' : 'current';
   }
-  function possibleMaximum(node) {
-    if (!node.getClientRects().length) return null;
-    const labels = ['title','aria-label','alt','data-original-title','data-tooltip'].map(key => node.getAttribute(key) || '');
-    if (!node.matches('script, style, input, textarea') && Array.from(node.childNodes).slice(0,4).some(n => n.nodeType === Node.TEXT_NODE && n.nodeValue.trim())) labels.push(shortText(node));
-    for (const label of labels) {
-      const grade = C.normalizeGrade(label.slice(0,256).match(/\b([SABCDF][+-]?)\s+rank\s+possible\b/i)?.[1]);
-      if (grade) return {grade, priority:4, kind:'possible-rank', role:'best'};
+  function labelsAt(node) {
+    if (!node.attributes.length) return [];
+    return LABELS.map(key => node.getAttribute(key)).filter(Boolean)
+      .map(text => text.slice(0,512).replace(/<[^>]*>/g,' ').replace(/&nbsp;/gi,' ').trim());
+  }
+  function gradeFromSource(source) {
+    if (!source || source.length > 768 || source.startsWith('data:')) return null;
+    try { source = decodeURIComponent(source); } catch {}
+    const match = source.match(/quality-([SABCDF])(?:(?:[-_]?)(plus|minus)|([+＋−–‑-]))?-(?:text|letter)(?:[.?#/]|$)/i);
+    if (!match) return null;
+    const suffix = match[2]?.toLowerCase();
+    return C.normalizeGrade(match[1] + (suffix === 'plus' ? '+' : suffix === 'minus' ? '-' : match[3] || ''));
+  }
+  function refineGrade(grades) {
+    if (grades.size === 1) return grades.values().next().value;
+    if (grades.size === 2) {
+      const [a,b] = grades;
+      if (a[0] === b[0] && a.length !== b.length) return a.length > b.length ? a : b;
     }
     return null;
   }
-  function readOverall(node) {
-    if (node.matches('script,style,input,textarea')) return null;
-    for (const [attr,role] of [['data-best-overall','best'],['data-max-overall','best'],['data-current-overall','current'],
+  function readMarker(node, labels = labelsAt(node)) {
+    if (!node.attributes.length) return null;
+    const marker = node.matches(MARKERS);
+    if (!marker && !labels.length && !node.hasAttribute('xlink:href')) return null;
+    const sourced = gradeFromSource(node.getAttribute('src') || node.getAttribute('data-src') || node.getAttribute('href') || node.getAttribute('xlink:href'));
+    const badge = node.matches('.quality, .tags');
+    const text = badge ? shortText(node,' ') : '';
+    const printed = C.normalizeGrade(text) || C.normalizeGrade(text.split(/\s+/).at(-1));
+    const precise = grade => {
+      if (grade.length !== 1) return grade;
+      const signed = [sourced,printed].filter(value=>value?.length === 2 && value[0] === grade);
+      return refineGrade(new Set(signed)) || grade;
+    };
+    const maximum = C.normalizeGrade(node.getAttribute('data-best-grade') || node.getAttribute('data-max-grade'));
+    if (maximum) return { grade: precise(maximum), priority: 6, kind: 'best-attribute', role: 'best' };
+    const equipped = C.normalizeGrade(node.getAttribute('data-current-grade'));
+    if (equipped) return { grade: precise(equipped), priority: 6, kind: 'current-attribute', role: 'current' };
+    const role = displayRole(labels.join(' '));
+    const explicit = C.normalizeGrade(node.getAttribute('data-roll-grade')) || C.normalizeGrade(node.getAttribute('data-roll-quality'));
+    if (explicit) return { grade: precise(explicit), priority: 3, kind: 'roll-attribute', role };
+    for (const label of labels) {
+      if (/trait combo|individual perks|community reviews|\boverall\b/i.test(label)) continue;
+      const titled = C.normalizeGrade(label.match(rankInLabel)?.[1] ||
+        (marker ? label.match(rankInParens)?.[1] || label : ''));
+      if (titled) return { grade: precise(titled), priority: 3, kind: 'title', role: displayRole(label) };
+    }
+    if (sourced) return { grade: sourced, priority: 3, kind: 'quality-image', role };
+    if (printed) return { grade: printed, priority: node.matches('.quality') ? 2 : 1, kind: node.matches('.quality') ? 'quality-label' : 'tags-label', role };
+    const grade = C.normalizeGrade(node.getAttribute('data-grade'));
+    return grade ? { grade, priority: 1, kind: 'grade-attribute', role } : null;
+  }
+  function possibleMaximum(node, labels, direct) {
+    const possibleLabels = /rank|possible/i.test(direct) ? [...labels,shortText(node,' ')] : labels;
+    for (const label of possibleLabels) {
+      const grade = C.normalizeGrade(label.match(possibleRank)?.[1]);
+      if (grade && node.getClientRects().length) return grade;
+    }
+    return null;
+  }
+  function directText(node) {
+    let text = '';
+    for (let child = node.firstChild, i = 0; child && i < 8; child = child.nextSibling, i++) {
+      if (child.nodeType === Node.TEXT_NODE) text += ' ' + child.nodeValue.slice(0,192);
+      if (text.length > 192) return '';
+    }
+    return text.trim();
+  }
+  function readOverall(node, nodeLabels, direct) {
+    if (node.attributes.length) for (const [attr,role] of [['data-best-overall','best'],['data-max-overall','best'],['data-current-overall','current'],
       ['data-overall',captureBasis === 'best' ? 'best' : 'current'],['data-overall-score',captureBasis === 'best' ? 'best' : 'current']]) {
       const raw = node.getAttribute(attr);
       if (raw === null) continue;
       const overall = C.normalizeOverall(raw);
       if (overall !== null) return {overall,role,priority:4,generic:!/(?:best|max|current)-overall/.test(attr)};
     }
-    if (!node.getClientRects().length) return null;
-    const labels = ['title','aria-label','data-original-title','data-tooltip'].map(a=>(node.getAttribute(a) || '').slice(0,256));
-    const direct = Array.from(node.childNodes).slice(0,4).filter(n=>n.nodeType === Node.TEXT_NODE).map(n=>n.nodeValue).join(' ').slice(0,256);
-    if (/\boverall\b/i.test(direct)) labels.push(shortText(node));
-    else if (node.matches('.overall, .overall-score, [data-popularity-overall]')) labels.push('Overall '+shortText(node));
-    else if (node.children.length <= 8 && Array.from(node.children).some(child=>child.getClientRects().length && /^overall(?:\s+(?:popularity|score))?\s*[:=]?$/i.test(shortText(child)))) labels.push(shortText(node));
+    const labels = nodeLabels.filter(label=>/\boverall\b/i.test(label));
+    const children = node.children;
+    const rowLabel = children.length > 0 && children.length <= 8 &&
+      Array.from(children).find(child=>OVERALL.test(directText(child)));
+    const row = OVERALL_START.test(direct) || node.matches(OVERALL_ROW) || rowLabel;
+    if ((!labels.length && !row) || !node.getClientRects().length) return null;
+    if (row && (!rowLabel || rowLabel.getClientRects().length)) {
+      const text = shortText(node,' ');
+      if (!/individual perks|trait combo|community reviews/i.test(text)) {
+        labels.push(OVERALL_START.test(text) ? text : 'Overall '+text);
+        // The grade or percentage can be carried on the row's icon or meter.
+        for (const part of node.querySelectorAll('img, use, [role="meter"], meter, [data-score], [data-percentage], [aria-label], [title], [data-original-title], [data-bs-original-title], [data-tooltip], [data-bs-title]')) {
+          if (!part.getClientRects().length) continue;
+          const grade = readMarker(part)?.grade || C.normalizeGrade(part.getAttribute('alt'));
+          if (grade) labels.push('Overall '+grade);
+          for (const value of labelsAt(part)) {
+            if (/^\d+(?:[.,]\d+)?\s*%$/.test(value)) labels.push('Overall '+value);
+            else if (/\boverall\b/i.test(value)) labels.push(value);
+          }
+          const dataScore = part.getAttribute('data-score');
+          const value = part.getAttribute('data-percentage') ?? (dataScore?.endsWith('%') ? dataScore : null) ??
+            (part.matches('meter[max="100"]') ? part.getAttribute('value') :
+              part.matches('[role="meter"][aria-valuemax="100"]') ? part.getAttribute('aria-valuenow') : null);
+          const score = C.normalizeOverall(value);
+          if (score !== null) labels.push('Overall '+score+'%');
+        }
+      }
+    }
+    const grades = new Set(), scores = new Set();
+    let role, generic = true;
     for (const label of labels) {
-      // Only the explicitly labelled Overall percentage, never individual
-      // perk popularity, stars, trait-combo scores or unrelated bar widths.
-      const matches = [...label.matchAll(/\boverall(?:\s+(?:popularity|score))?\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*%/gi)];
-      if (matches.length !== 1) continue;
-      const match = matches[0];
-      const overall = match ? C.normalizeOverall(match[1]) : null;
-      if (overall === null) continue;
+      if (/individual perks|trait combo|community reviews/i.test(label)) continue;
       const explicitBest = /best available|maximum|highest|máxim/i.test(label), explicitCurrent = /current|equipped|actual|equipad/i.test(label);
       if (explicitBest && explicitCurrent) continue;
-      const role = explicitBest ? 'best' : explicitCurrent ? 'current' : captureBasis === 'best' ? 'best' : 'current';
-      return {overall,role,priority:2,generic:!explicitBest && !explicitCurrent};
+      const grade = C.normalizeGrade(label.match(overallGrade)?.[1]);
+      const score = C.normalizeOverall(label.match(/\boverall(?:\s+(?:popularity|score|rank))*\s*[:=(]?\s*(\d+(?:[.,]\d+)?)\s*%/i)?.[1] ??
+        (grade ? label.match(/(?:^|[\s(,])([0-9]+(?:[.,][0-9]+)?)\s*%/)?.[1] : null));
+      if (!grade && score === null) continue;
+      const labelRole = displayRole(label);
+      if (role && labelRole !== role) return null;
+      role = labelRole;
+      generic &&= !explicitBest && !explicitCurrent;
+      if (grade) grades.add(grade);
+      if (score !== null) scores.add(score);
     }
-    return null;
+    if (!role) return null;
+    const grade = refineGrade(grades);
+    const gradeConflict = grades.size > 0 && !grade;
+    return {grade,gradeConflict,overall:scores.size === 1 ? scores.values().next().value : null,
+      conflict:gradeConflict || scores.size > 1,role,priority:2,generic};
   }
   function description(node) {
     return { tag: node.tagName, classes: (node.getAttribute('class') || '').slice(0, 180), idAttribute: (node.id || '').replace(/\d{18,20}/g, id => '…' + id.slice(-8)).slice(0, 100), instanceAttributes: Array.from(node.attributes || []).filter(attr => identityAttribute(attr) && /\d{18,20}/.test(attr.value)).map(attr => attr.name).slice(0, 10), ignoredAssetAttributes: assetIdentifiersAt(node).slice(0,10) };
@@ -126,12 +255,18 @@
   function update(force = false) {
     if (!label || (!force && performance.now() - lastUpdate < 300)) return;
     lastUpdate = performance.now();
-    label.textContent = `${stopped ? 'Stopped' : scanning ? 'Reading cards' : stats.completed ? 'Capture complete' : 'Preparing capture'} · ${seen.size} ranks · ${maximumIds.size} confirmed maxima · ${count} saved · ${stats.ids || 0} IDs · ${stats.markers || 0} markers${!seen.size && stats.completed && !scanning ? ' · If this stays at zero, download Diagnostics.' : ''}`;
+    const overallCount = overallIds.size + [...nativeOverallIds].filter(id=>!overallIds.has(id)).length;
+    label.textContent = `${stopped ? 'Stopped' : scanning ? 'Reading cards' : stats.completed ? 'Capture complete' : 'Preparing capture'} · ${maximumIds.size} max · ${overallCount} Overall`;
+    label.title = `${seen.size} ranks in this scan · ${count} total saved`;
   }
   function collect(id, record) {
     const signature = JSON.stringify(record);
     if (seen.get(id) === signature) return;
-    seen.set(id, signature); record.bestGrade ? maximumIds.add(id) : maximumIds.delete(id); pending.set(id, record); lastNew = Date.now();
+    seen.set(id, signature);
+    if (record.bestGrade || nativeOverallIds.has(id)) maximumIds.add(id);
+    else maximumIds.delete(id);
+    record.bestOverall !== undefined ? overallIds.add(id) : overallIds.delete(id);
+    pending.set(id, record); lastNew = Date.now();
     if (!saveTimer) saveTimer = setTimeout(flush, 300);
     update();
   }
@@ -141,53 +276,130 @@
     const batch = Object.fromEntries(pending); pending.clear();
     try {
       const result = await browser.runtime.sendMessage({ type: 'save-grades', grades: batch, source: 'dom' });
-      if (result?.vcError) throw new Error(result.vcError);
       count = result.total; update(true);
     } catch { if (label) label.textContent = 'Ranks could not be saved. Reload this tab.'; }
+  }
+  function requestAppraisalData() { document.dispatchEvent(new Event('vault-cleaner-appraisal-listen')); }
+  function requestRollModel() {
+    if (!document.hidden) document.dispatchEvent(new Event('vault-cleaner-appraisal-model-request'));
+  }
+  document.addEventListener('vault-cleaner-appraisal-ready',()=>{if (bar && !stopped) requestAppraisalData();});
+  document.addEventListener('vault-cleaner-appraisal-data',event=>receiveAppraisals(event,'appraisal'));
+  document.addEventListener('vault-cleaner-appraisal-model',event=>receiveAppraisals(event,'appraisal-model'));
+  async function receiveAppraisals(event,source) {
+    if (!bar || stopped || typeof event.detail !== 'string' || event.detail.length > 1500000) return;
+    let message;
+    try {message = JSON.parse(event.detail);} catch {return;}
+    if (!message) return;
+    const fromModel = source === 'appraisal-model';
+    if (fromModel) {
+      if (typeof message.available !== 'boolean' || !Number.isInteger(message.rolls) || message.rolls < 0) return;
+      modelSummary = {available:message.available,rolls:message.rolls};
+    } else {
+      if (!Number.isInteger(message.responses) || !Array.isArray(message.fields)) return;
+      nativeSummary = {responses:Math.max(0,message.responses),
+        fields:message.fields.filter(field=>typeof field === 'string' && /^[a-z-]{2,96}$/.test(field)).slice(0,30)};
+    }
+    const records = {};
+    for (const [id,record] of Object.entries(message.records || {})) {
+      if (!C.normalizeId(id) || !record || !C.normalizeGrade(record.grade)) continue;
+      if (fromModel && C.lightggAverageGrade(record.bestOverall) !== record.bestGrade) continue;
+      const key = source + id;
+      const signature = JSON.stringify(record);
+      if (nativeSignatures.get(key) === signature) continue;
+      nativeSignatures.set(key,signature);
+      records[id] = record;
+    }
+    if (!Object.keys(records).length) return;
+    try {
+      const result = await browser.runtime.sendMessage({type:'save-grades',grades:records,source});
+      count = result.total;
+      for (const [id,record] of Object.entries(records)) if (record.bestGrade) {nativeOverallIds.add(id);maximumIds.add(id);}
+      lastNew = Date.now();
+      update(true);
+    } catch {
+      for (const id of Object.keys(records)) nativeSignatures.delete(source + id);
+      if (label) label.textContent = 'Overall could not be saved. Reload this tab.';
+    }
   }
   function wasResolved(node) {
     for (let n = node, i = 0; n && n !== document.body && i < MAX_ANCESTORS; n = n.parentElement, i++) if (processedRoots.has(n)) return true;
     return false;
+  }
+  function readEvidence(node) {
+    let evidence = cardEvidence.get(node);
+    if (!evidence) {
+      const labels = labelsAt(node);
+      const isContent = !node.matches('script,style,input,textarea');
+      const direct = isContent ? directText(node) : '';
+      evidence = {ids:idsAt(node), marker:readMarker(node,labels),
+        possible:isContent ? possibleMaximum(node,labels,direct) : null,
+        overall:isContent ? readOverall(node,labels,direct) : null};
+      cardEvidence.set(node,evidence);
+    }
+    return evidence;
+  }
+  function addRank(rank, grade, priority) {
+    if (priority > rank.priority) {rank.priority = priority; rank.values.clear();}
+    if (priority === rank.priority) rank.values.add(grade);
+    if (grade.length === 2 && priority >= 2) rank.signed.add(grade);
   }
   function* resolve(node, expectedId) {
     let candidate = null;
     for (let container = node, depth = 0; container && depth < MAX_ANCESTORS; container = container.parentElement, depth++) {
       if (container === document.body || container === document.documentElement || bar.contains(container)) break;
       const ids = new Set();
-      const ranks = {current:{priority:0,values:new Set(),displayed:new Set()},best:{priority:0,values:new Set(),displayed:new Set()}};
-      const scores = {current:{priority:0,values:new Set(),generic:false},best:{priority:0,values:new Set(),generic:false}};
+      const ranks = {current:{priority:0,values:new Set(),scoped:new Set(),signed:new Set(),conflict:false},best:{priority:0,values:new Set(),scoped:new Set(),signed:new Set(),conflict:false}};
+      const scores = {current:{priority:0,values:new Set(),generic:false,conflict:false},best:{priority:0,values:new Set(),generic:false,conflict:false}};
+      const possible = new Set();
       let visited = 0;
       const tree = document.createTreeWalker(container, NodeFilter.SHOW_ELEMENT);
       let current = container;
       while (current && visited < MAX_CARD_NODES) {
-        for (const id of idsAt(current)) ids.add(id);
+        const evidence = readEvidence(current);
+        for (const id of evidence.ids) ids.add(id);
         if (ids.size > 1) break;
-        for (const marker of [readMarker(current),possibleMaximum(current)]) {
-          if (!marker) continue;
-          const rank = ranks[marker.role];
-          if (marker.kind !== 'possible-rank') rank.displayed.add(marker.grade);
-          if (marker.priority > rank.priority) { rank.priority = marker.priority; rank.values.clear(); }
-          if (marker.priority === rank.priority) rank.values.add(marker.grade);
-        }
-        const overall = readOverall(current);
+        const {marker,overall} = evidence;
+        if (marker) addRank(ranks[marker.role],marker.grade,marker.priority);
+        if (evidence.possible) possible.add(evidence.possible);
         if (overall) {
+          if (overall.grade) ranks[overall.role].scoped.add(overall.grade);
+          ranks[overall.role].conflict ||= overall.gradeConflict === true;
           const score = scores[overall.role];
-          if (overall.priority > score.priority) {score.priority = overall.priority;score.values.clear();score.generic=false;}
-          if (overall.priority === score.priority) {score.values.add(overall.overall);score.generic ||= overall.generic;}
+          if (overall.overall != null || overall.conflict) {
+            if (overall.priority > score.priority) {score.priority = overall.priority;score.values.clear();score.generic=false;score.conflict=false;}
+            if (overall.priority === score.priority) {
+              if (overall.overall != null) score.values.add(overall.overall);
+              score.generic ||= overall.generic;
+              score.conflict ||= overall.conflict;
+            }
+          }
         }
         visited++; yield null;
         current = tree.nextNode();
       }
       if (ids.size > 1) { stats.ambiguous++; break; }
       if (current) { stats.tooLarge++; break; }
-      if (ranks.current.values.size > 1 || ranks.best.values.size > 1) { stats.conflictingGrades++; candidate = null; break; }
-      const currentGrade = [...ranks.current.values][0], bestGrade = [...ranks.best.values][0];
+      const displayed = {};
+      let conflict = false;
+      for (const [role,rank] of Object.entries(ranks)) {
+        const values = rank.scoped.size && rank.priority < 6 ? rank.scoped : new Set([...rank.values,...rank.scoped]);
+        const grade = refineGrade(values);
+        const signed = grade?.length === 1 ? [...rank.signed].filter(value=>value[0] === grade) : [];
+        displayed[role] = signed.length === 1 ? signed[0] : grade;
+        if (rank.conflict || values.size && !grade || signed.length > 1) conflict = true;
+      }
+      const possibleGrade = refineGrade(possible);
+      if (conflict || possible.size && !possibleGrade) {stats.conflictingGrades++; candidate = null; break;}
+      const currentGrade = displayed.current;
+      let bestGrade = displayed.best || possibleGrade;
+      if (displayed.best && possibleGrade && C.gradeOrder(possibleGrade) < C.gradeOrder(displayed.best)) bestGrade = possibleGrade;
       if (ids.size === 1 && ids.has(expectedId) && (currentGrade || bestGrade)) {
         const record = {grade:bestGrade || currentGrade,basis:bestGrade ? 'best' : 'displayed'};
         if (currentGrade) record.currentGrade = currentGrade;
         if (bestGrade) record.bestGrade = bestGrade;
-        for (const role of ['current','best']) if (record[role+'Grade'] && scores[role].values.size === 1 &&
-          (!scores[role].generic || ranks[role].displayed.size === 1 && ranks[role].displayed.has(record[role+'Grade']))) record[role+'Overall'] = [...scores[role].values][0];
+        for (const role of ['current','best']) if (record[role+'Grade'] && !scores[role].conflict && scores[role].values.size === 1 &&
+          (!scores[role].generic || displayed[role] === record[role+'Grade'])) record[role+'Overall'] = scores[role].values.values().next().value;
         candidate = {container,record};
       }
     }
@@ -204,8 +416,9 @@
     while (node) {
       if (bar.contains(node)) { node = tree.nextNode(); continue; }
       stats.elements++;
-      stats.ignoredAssetIdentifiers += assetIdentifiersAt(node).length;
-      const ids = idsAt(node), marker = readMarker(node);
+      if (node.attributes.length) stats.ignoredAssetIdentifiers += assetIdentifiersAt(node).length;
+      const evidence = cardEvidence.get(node);
+      const ids = evidence?.ids ?? idsAt(node), marker = evidence ? evidence.marker : readMarker(node);
       if (node.matches(MARKERS)) {
         stats.labelCandidates++;
         if (samples.labels.length < 8) {
@@ -249,7 +462,7 @@
     dirty = false; lastScan = performance.now(); scanning = true;
     stats = { elements: 0, ids: 0, ignoredAssetIdentifiers: 0, markers: 0, labelCandidates: 0, ambiguous: 0, tooLarge: 0, conflictingGrades: 0, noGrade: 0 };
     samples = { identifiers: [], markers: [], labels: [] };
-    processedRoots = new WeakSet(); scanIds = new Set(); walk = scanPage();
+    processedRoots = new WeakSet(); scanIds = new Set(); cardEvidence = new WeakMap(); walk = scanPage();
     update(true); sliceTimer = setTimeout(slice, 0);
   }
   function schedule() {
@@ -261,16 +474,18 @@
     stopped = true; session++;
     observer?.disconnect();
     clearTimeout(scanTimer); clearTimeout(sliceTimer); clearInterval(scrollTimer);
+    clearInterval(modelTimer);
     scanTimer = sliceTimer = scrollTimer = null;
     scanning = false; dirty = false; walk = null;
     flush(); update(true); if (control) control.textContent = 'Resume capture';
   }
   function observe() {
     if (!observer || stopped) return;
-    observer.observe(document.body, { childList: true, subtree: true, characterData:true, attributes: true, attributeFilter: [...new Set(['src','title','href','id','data-id','data-instance-id','data-instanceid','data-item-instance-id','data-iteminstanceid','data-roll-grade','data-roll-quality','data-grade','data-current-grade','data-best-grade','data-max-grade','data-best-overall','data-max-overall','data-current-overall','data-overall','data-overall-score','aria-label','alt','data-original-title','data-tooltip', ...identityAttributes])] });
+    observer.observe(document.body, { childList: true, subtree: true, characterData:true, attributes: true, attributeFilter: [...new Set(['src','data-src','href','xlink:href','id','data-id','data-instance-id','data-instanceid','data-item-instance-id','data-iteminstanceid','data-roll-grade','data-roll-quality','data-grade','data-current-grade','data-best-grade','data-max-grade','data-best-overall','data-max-overall','data-current-overall','data-overall','data-overall-score','data-popularity-overall','data-score','data-percentage','aria-valuenow','value', ...LABELS, ...identityAttributes])] });
   }
   function start() {
-    stopped = false; session++; seen.clear(); maximumIds.clear(); stats.completed = false;
+    stopped = false; session++; seen.clear(); maximumIds.clear(); overallIds.clear(); stats.completed = false;
+    for (const id of nativeOverallIds) maximumIds.add(id);
     update(true); if (control) control.textContent = 'Stop capture';
     observer = new MutationObserver(records => {
       for (const record of records) {
@@ -280,42 +495,61 @@
     });
     observe();
     schedule();
-    if (auto) {
+    requestAppraisalData();
+    requestRollModel();
+    modelTimer = setInterval(requestRollModel,4000);
+    if (auto && captureBasis === 'best') {
       const started = Date.now(), thisSession = session; let bottomSince = null;
       scrollTimer = setInterval(() => {
         if (stopped || thisSession !== session) return;
         if (Date.now() - started > 180000) { stop(); return; }
-        if (document.hidden || !seen.size || scanning || scanTimer) return;
+        if (document.hidden || bar.open || !seen.size || scanning || scanTimer) return;
         window.scrollBy({ top: Math.round(innerHeight * 0.8), behavior: 'instant' });
         const atBottom = scrollY + innerHeight >= document.documentElement.scrollHeight - 30;
         if (atBottom) bottomSince ||= Date.now(); else bottomSince = null;
         if (bottomSince && Date.now() - bottomSince > 8000 && Date.now() - lastNew > 8000) {
-          stop(); label.textContent = `Capture finished · ${seen.size} ranks. Return to DIM and click Refresh inventory. Other views or pages may still be missing.`;
+          stop();
         }
       }, 1500);
     }
   }
   function diagnostic() {
-    const report = { version: '0.3.1', captureBasis, confirmedMaxima:maximumIds.size, page: location.pathname, state: stopped ? 'stopped' : scanning ? 'scanning' : 'idle', capturedThisSession: seen.size, saved: count, counters: stats, samples, limits: { maxCardNodes: MAX_CARD_NODES, maxAncestors: MAX_ANCESTORS, sliceMs: SLICE_MS } };
+    const report = { version: browser.runtime.getManifest?.().version || '0.3.6', captureBasis, confirmedMaxima:maximumIds.size,
+      maximumOverallScores:new Set([...overallIds,...nativeOverallIds]).size,
+      appraisal:{...nativeSummary,maximumScores:nativeOverallIds.size,model:modelSummary}, page: location.pathname, state: stopped ? 'stopped' : scanning ? 'scanning' : 'idle', capturedThisSession: seen.size, saved: count, counters: stats, samples, limits: { maxCardNodes: MAX_CARD_NODES, maxAncestors: MAX_ANCESTORS, sliceMs: SLICE_MS } };
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'Vault-Cleaner-diagnostics.json';
     bar.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   function mount() {
-    bar = document.createElement('div'); bar.id = 'vc-lightgg-status';
-    Object.assign(bar.style, { position: 'fixed', bottom: '16px', left: '16px', right: '16px', zIndex: '2147483647', background: '#17241c', color: '#ecffe4', padding: '12px 16px', border: '1px solid #9cd96d', borderRadius: '12px', display: 'flex', gap: '12px', alignItems: 'center', font: '13px system-ui', boxShadow: '0 12px 40px #0008' });
-    label = document.createElement('span'); label.style.flex = '1';
+    bar = document.createElement('details'); bar.id = 'vc-lightgg-status';
+    Object.assign(bar.style, { position: 'fixed', bottom: '10px', left: '10px', zIndex: '2147483647', background: '#17241c', color: '#ecffe4', border: '1px solid #719f4d', borderRadius: '8px', width: 'max-content', maxWidth: 'min(275px, calc(100vw - 20px))', font: '12px system-ui', boxShadow: '0 4px 18px #0008' });
+    const summary = document.createElement('summary');
+    Object.assign(summary.style, {padding:'6px 8px',cursor:'pointer',lineHeight:'1.3'});
+    label = document.createElement('span'); label.setAttribute('role','status');
+    summary.append(label);
+    summary.setAttribute('aria-label','Vault Cleaner capture');
+    const options = document.createElement('div');
+    Object.assign(options.style, {padding:'8px',display:'flex',flexWrap:'wrap',alignItems:'center',gap:'7px',borderTop:'1px solid #49643b'});
     control = document.createElement('button'); control.textContent = 'Stop capture';
     control.addEventListener('click', () => stopped ? start() : stop());
     const debug = document.createElement('button'); debug.textContent = 'Diagnostics'; debug.onclick = diagnostic;
     bestMode = document.createElement('input'); bestMode.type = 'checkbox'; bestMode.id = 'vc-best-mode';
     const confirmation = document.createElement('label');
     confirmation.append(bestMode,document.createTextNode(' I am viewing Best Available'));
-    confirmation.title = 'In light.gg: ☰ → Settings → Popularity Rank Display → Best Available. Check after ranks update. This only reads the maximum; you change perks in light.gg.';
-    bestMode.addEventListener('change',()=>{stop();captureBasis=bestMode.checked ? 'best' : 'displayed';start();});
-    const help = document.createElement('span'); help.textContent = 'Maximum: light.gg → Settings → Popularity Rank Display → Best Available.'; help.style.fontSize='11px';
-    bar.style.flexWrap = 'wrap';
-    bar.append(label, help, confirmation, control, debug); document.body.append(bar);
+    confirmation.style.width = '100%';
+    bestMode.addEventListener('change',()=>{
+      stop();captureBasis=bestMode.checked ? 'best' : 'displayed';start();
+      bar.open = false;
+      summary.focus({preventScroll:true});
+    });
+    const help = document.createElement('p');
+    help.textContent = 'Settings → Popularity Rank Display → Best Available. Confirm after ranks update.';
+    Object.assign(help.style, {margin:'0',fontSize:'11px'});
+    options.append(help, confirmation, control, debug);
+    bar.append(summary, options); document.body.append(bar);
+    document.addEventListener('pointerdown',event=>{if (bar.open && !bar.contains(event.target)) bar.open = false;});
+    bar.addEventListener('keydown',event=>{if (event.key === 'Escape' && bar.open) {bar.open = false;summary.focus();}});
     start();
   }
   addEventListener('pagehide', stop, { once: true });

@@ -1,4 +1,4 @@
-const assert=require('node:assert/strict');const path=require('node:path');const {chromium}=require('playwright');const m=require('./browser-engine.cjs');const engine=m.default||m;const root=path.resolve(__dirname,'..');
+const assert=require('node:assert/strict');const path=require('node:path');const {chromium}=require('playwright');const m=require('@sparticuz/chromium');const engine=m.default||m;const root=path.resolve(__dirname,'..');
 (async()=>{
  const browser=await chromium.launch({executablePath:await engine.executablePath(),args:engine.args,headless:true});
  try{
@@ -21,6 +21,7 @@ const assert=require('node:assert/strict');const path=require('node:path');const
   await page.waitForFunction(()=>document.getElementById('app').shadowRoot.getElementById('candidates').textContent==='35');
   assert.equal(await page.locator('#reserve').isChecked(),false);assert.equal(await page.locator('#limit').getAttribute('max'),'9');assert.match(await page.locator('#capacity').textContent(),/0 ready this batch · Limit per slot 9/);
   await page.locator('#select-visible').click();assert.equal(await page.locator('#selected-count').textContent(),'35');
+  await page.locator('#batch-controls > summary').click();
   await page.locator('#prepare').click();assert.match(await page.locator('#review-title').textContent(),/^27 weapons/);
   const plan=await page.evaluate(()=>lastPlan);assert.deepEqual(plan.counts,{kinetic:9,energy:9,power:9});assert.ok(!plan.ids.includes('6917530200300500000'));assert.equal(plan.skipped.length,8);
   await page.locator('#cancel-plan').click();

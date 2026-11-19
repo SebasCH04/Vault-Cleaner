@@ -187,7 +187,9 @@
     if (!state.dimApi?.profileLoaded || !profile) checks.push('DIM has not loaded tags and loadouts yet.');
     if (!native) checks.push('In-game loadouts could not be verified.');
     if (!rows.length) checks.push('The inventory is empty or still loading.');
-    return { items: rows, characters: chars, canTransfer: !checks.length, warnings: checks, at: Date.now(), accountKey: key, source: 'live' };
+    const canSync = version === 2 && state.inventory.live && !state.inventory.mockProfileData &&
+      rows.some(item=>item.weapon && C.normalizeId(item.id));
+    return { items: rows, characters: chars, canSync, canTransfer: !checks.length, warnings: checks, at: Date.now(), accountKey: key, source: 'live' };
   }
   function refreshControl() {
     return [...document.querySelectorAll('button[aria-keyshortcuts]')].find(el =>

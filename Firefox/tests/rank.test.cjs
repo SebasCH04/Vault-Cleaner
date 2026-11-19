@@ -22,9 +22,11 @@ const {chromium:playwright}=require('playwright');const mod=require('@sparticuz/
   const saved=await page.evaluate(()=>saved);assert.equal(saved[id].grade,'S');assert.equal(saved[id].currentGrade,'C');assert.equal(saved[id].bestGrade,'S');assert.equal(saved['6917530200300210002'].bestGrade,'C+');
   assert.equal(saved['6917530200300210003'].bestGrade,undefined);assert.equal(saved['6917530200300210004'].bestGrade,undefined);
   assert.equal(await page.evaluate(()=>perkClicks),0);
+  await page.locator('#vc-lightgg-status > summary').click();
   await page.locator('#vc-best-mode').check();
   await page.waitForFunction(()=>saved['6917530200300210003'].bestGrade==='C');
   assert.equal((await page.evaluate(()=>saved['6917530200300210003'])).currentGrade,undefined);
+  await page.locator('#vc-lightgg-status > summary').click();
   await page.locator('#vc-best-mode').uncheck();
   await page.waitForFunction(()=>saved['6917530200300210003'].bestGrade===undefined);
   console.log('PASS capture: C→S possible rank, explicit F→C+ maximum, hidden notice excluded, Best Available confirmation rescans without changing perks');

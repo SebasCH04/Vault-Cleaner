@@ -44,6 +44,7 @@ const root = path.resolve(__dirname,'..');
     await page.locator('#cancel-plan').click();
     await page.locator('#query').fill('');
     await page.locator('#select-visible').click();assert.equal(await page.locator('#selected-count').textContent(),'5');
+    await page.locator('#batch-controls > summary').click();
     await page.locator('#batch-mode').selectOption('total');assert.equal(await page.locator('#limit').getAttribute('max'),'45');
     assert.equal(await page.locator('#space-detail').isVisible(),false);
     await page.locator('#prepare').click();

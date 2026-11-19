@@ -1,5 +1,5 @@
 const { chromium } = require('playwright');
-const m = require('./browser-engine.cjs'), engine = m.default || m;
+const m = require('@sparticuz/chromium'), engine = m.default || m;
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
@@ -33,6 +33,7 @@ const root = path.resolve(__dirname, '..');
     });
     await page.addScriptTag({ path: root + '/core.js' });
     await page.addScriptTag({ path: root + '/lightgg-content.js' });
+    await page.locator('#vc-lightgg-status > summary').click();
     await page.locator('#vc-best-mode').check();
     await page.waitForFunction(() => document.getElementById('vc-lightgg-status').textContent.startsWith('Capture complete'));
     const result = await page.evaluate(() => ({ saved, expected }));
@@ -60,6 +61,7 @@ const root = path.resolve(__dirname, '..');
     console.log('PASS identity boundaries: links, image metadata and URL-valued data excluded; genuinely mixed copies still rejected');
 
     const downloadPromise = page.waitForEvent('download');
+    await page.locator('#vc-lightgg-status > summary').click();
     await page.getByRole('button', { name: 'Diagnostics', exact: true }).click();
     const fs = require('node:fs');
     const report = JSON.parse(fs.readFileSync(await (await downloadPromise).path(), 'utf8'));
