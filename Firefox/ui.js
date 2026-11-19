@@ -183,7 +183,14 @@
     $('select-visible').onclick = selectVisible; $('all-check').onchange = selectVisible;
     if ($('close')) $('close').onclick = () => { host.style.display = 'none'; };
     if (adapter.onGradesChanged) adapter.onGradesChanged(async () => { grades = await adapter.grades(); if (!busy) render(); });
-    root.addEventListener('keydown', event => { if (event.key === 'Escape' && !$('dialog').classList.contains('hidden')) $('cancel-plan')?.click(); });
+    // DIM sees the shadow host as event.target, so its form-control shortcut
+    // guard cannot see our focused input. Keep panel keys out of page hotkeys
+    // without cancelling native typing, editing or keyboard navigation.
+    root.addEventListener('keydown', event => {
+      event.stopPropagation();
+      if (event.key === 'Escape' && !$('dialog').classList.contains('hidden')) $('cancel-plan')?.click();
+    });
+    for (const type of ['keypress', 'keyup']) root.addEventListener(type, event => event.stopPropagation());
     refresh();
     return { refresh, root };
   };

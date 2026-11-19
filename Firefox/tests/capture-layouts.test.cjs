@@ -35,7 +35,7 @@ const root=path.resolve(__dirname,'..');
   console.log('PASS capture: N/A, God Roll text, contradictory ranks and multiple copy IDs excluded');
   const downloadPromise=page.waitForEvent('download');await page.getByRole('button',{name:'Diagnostics',exact:true}).click();const download=await downloadPromise;
   const fs=require('node:fs');const raw=fs.readFileSync(await download.path(),'utf8');const report=JSON.parse(raw);
-  assert.equal(report.version,'0.1.10');assert.equal(report.capturedThisSession,5);assert.ok(report.counters.ids>=8);assert.ok(!raw.includes('do-not-export-me'));
+  assert.equal(report.version,'0.1.11');assert.equal(report.capturedThisSession,5);assert.ok(report.counters.ids>=8);assert.ok(!raw.includes('do-not-export-me'));
   assert.ok(report.samples.identifiers.length>0);assert.ok(report.samples.markers.length>0);
   console.log('PASS diagnostic: useful counters and markup samples; hidden form values excluded');
   await page.evaluate(()=>document.querySelector('[data-inst]').setAttribute('data-inst','weapon_6917530200300170010'));

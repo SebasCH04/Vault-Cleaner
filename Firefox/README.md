@@ -8,7 +8,7 @@ A Firefox extension with an inventory panel inside DIM and an offline interactiv
 2. Open `about:debugging#/runtime/this-firefox` in Firefox.
 3. Remove the previous temporary Vault Cleaner extension, if installed.
 4. Click **Load Temporary Add-on** and select `manifest.json` in the extracted folder.
-5. Check version **0.1.10** in Firefox's extension details, then reload **DIM and light.gg** to replace their previous scripts. The panel itself does not show a version badge.
+5. Check version **0.1.11** in Firefox's extension details, then reload **DIM and light.gg** to replace their previous scripts. The panel itself does not show a version badge.
 6. Open DIM and click **Vault Cleaner** in the bottom-right corner.
 
 Temporary Firefox extensions must be loaded again after restarting Firefox. No Aegis extension is required. This package does not bundle Aegis.
@@ -67,6 +67,10 @@ The DIM bridge verifies exact instance IDs, account state, protections, target c
 
 The extension does not dismantle, equip, unlock or change perks. **View in DIM** searches the selected exact instance IDs.
 
+## Search and keyboard
+
+The panel search filters weapon names and perks as you type. Keyboard events inside the panel stay inside it, so DIM's global shortcuts cannot consume letters or move focus to DIM's own search. Native editing and navigation still work, including select-all, arrow keys, Tab and Enter. Escape dismisses the panel's batch review. DIM shortcuts remain available when focus is outside the panel.
+
 ## Capture controls and diagnostics
 
 Capture reads bounded card sections incrementally. Instance IDs come from structural card IDs and plain identity data attributes; long numbers in perk-image filenames, links and styling are excluded. Numeric asset identifiers are counted separately in diagnostics, preventing enhanced-perk icons from making an otherwise valid card look like multiple weapon copies. **Stop capture** and **Resume capture** control the scanner. If capture stays at zero, wait for **Capture complete**; if ranks still do not appear, use **Diagnostics** to download `Vault-Cleaner-diagnostics.json`.
@@ -81,4 +85,4 @@ Open `Vault-Cleaner-demo.html` from the ZIP. It contains sample weapons and simu
 
 Run `node --test tests/core.test.cjs`. Browser fixtures require Playwright and a compatible Chromium binary; the included browser tests use `@sparticuz/chromium`.
 
-Checks cover vault-only rank counts, updates during transfers, DIM store subscriptions, returning after in-game dismantling, automatic retry of cached-full capacity, unchanged/failed refreshes, real-full blocking, actual item locations, maximum-rank protections, exact IDs, per-slot and total batches, occupied/full slots, optional reserves, manual selection, mode changes, the responsive footer, Best Available capture, incremental scanner performance, seven-card numeric-perk-asset regression (five A and two B copies), genuine multi-copy rejection, and DIM STORE without EQUIP. Browser fixtures simulate DIM and light.gg; they do not validate a live Bungie transfer.
+Checks cover search with DIM-like global keyboard shortcuts, text editing and keyboard navigation, unchanged DIM shortcuts outside the panel, vault-only rank counts, updates during transfers, DIM store subscriptions, returning after in-game dismantling, automatic retry of cached-full capacity, unchanged/failed refreshes, real-full blocking, actual item locations, maximum-rank protections, exact IDs, per-slot and total batches, occupied/full slots, optional reserves, manual selection, mode changes, the responsive footer, Best Available capture, incremental scanner performance, seven-card numeric-perk-asset regression (five A and two B copies), genuine multi-copy rejection, and DIM STORE without EQUIP. Browser fixtures simulate DIM and light.gg; they do not validate a live Bungie transfer.
