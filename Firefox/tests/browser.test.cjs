@@ -15,9 +15,12 @@ const root = path.resolve(__dirname,'..');
   await page.locator('#app').locator('#total').waitFor();
   await page.waitForFunction(()=>document.querySelector('#app').shadowRoot.getElementById('total').textContent==='18');
   assert.equal(await page.locator('#candidates').textContent(),'6');
-  assert.deepEqual(await page.locator('#tabs button').allTextContents(),['Candidatas','Protegidas','Sin máximo','Todas']);
-  assert.equal(await page.locator('th').nth(2).textContent(),'Máximo');
+  assert.deepEqual(await page.locator('#tabs button').allTextContents(),['Candidates','Protected','No maximum','All']);
+  assert.equal(await page.locator('th').nth(2).textContent(),'Maximum');
   assert.equal(await page.locator('#rated').textContent(),'15');
+  assert.equal(await page.locator('.brand p').textContent(),'DESTINY 2');
+  assert.equal(await page.locator('.head .pill').count(),0);
+  assert.ok(!(await page.locator('.head').textContent()).includes('0.1.'));
   assert.equal(await page.locator('[data-improve]').count(),0);
   assert.ok(!(await page.locator('#app').textContent()).includes('Para leer el máximo'));
 
@@ -26,14 +29,35 @@ const root = path.resolve(__dirname,'..');
   assert.equal(await page.locator('#selected-count').textContent(),'6');
   await page.locator('#limit').fill('1');
   await page.locator('#prepare').click();
-  assert.match(await page.locator('#review-title').textContent(),/^3 armas/);
+  assert.match(await page.locator('#review-title').textContent(),/^3 weapons/);
   await page.locator('#confirm-plan').click();
-  await page.waitForFunction(()=>document.querySelector('#app').shadowRoot.getElementById('status').textContent.includes('3 arma(s) trasladada(s)'));
+  await page.waitForFunction(()=>document.querySelector('#app').shadowRoot.getElementById('status').textContent.includes('3 weapons transferred and confirmed'));
   assert.equal(await page.locator('#candidates').textContent(),'3');
   console.log('PASS preview: grade filters, select, review, size limit, simulated transfer and refreshed candidates');
   await page.locator('[data-view=ungraded]').click();
   assert.equal(await page.locator('#rows tr').count(),3);
   console.log('PASS preview: ungraded items kept outside eligible candidates');
+  // Exercise the actual panel widths, including the footer layout reported by the user.
+  await page.evaluate(()=>{
+    document.getElementById('app').shadowRoot.querySelector('.standalone').classList.remove('standalone');
+    Object.assign(document.getElementById('app').style,{position:'fixed',right:'18px',top:'18px',width:'min(660px, calc(100vw - 36px))'});
+    document.querySelectorAll('.note').forEach(note=>note.remove());
+  });
+  for (const width of [900,520,375]) {
+    await page.setViewportSize({width,height:1100});
+    const view=await page.locator('#search-dim').boundingBox(),prepare=await page.locator('#prepare').boundingBox();
+    assert.ok(Math.abs(view.y-prepare.y)<1,`Buttons must align at width ${width}`);
+    assert.equal(view.height,40);assert.equal(prepare.height,40);
+    assert.ok(view.x+view.width<=prepare.x,`Buttons must not overlap at width ${width}`);
+    assert.ok(prepare.x+prepare.width<=width,`Buttons must stay inside the viewport at width ${width}`);
+    const finalGrade=await page.locator('#grades button').last().boundingBox();
+    const gradeGrid=await page.locator('#grades').boundingBox();
+    assert.ok(finalGrade.x+finalGrade.width<=gradeGrid.x+gradeGrid.width+1,`All six ranks must fit at width ${width}`);
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await page.screenshot({path:path.resolve(root,`../v018-panel-${width}.png`),fullPage:true});
+  }
+  console.log('PASS layout: aligned 40px footer buttons at 660px panel and narrow 484px/339px panels');
+  await page.setViewportSize({width:1440,height:1080});
   await page.setContent('<html><body><div class="item" id="6917530200300167753">Weapon 1</div><div class="item" id="6917530200300167754">Weapon 2</div><div id="popup"></div></body></html>');
   await page.addScriptTag({path:root+'/core.js'});
   await page.evaluate(()=>{
@@ -73,7 +97,9 @@ const root = path.resolve(__dirname,'..');
   const result=await page.evaluate(async()=>{
     const ids=['6917530200300167753','6917530200300167754'];
     const grades=Object.fromEntries(ids.map(id=>[id,{grade:'F',bestGrade:'F',at:Date.now()}]));
-    const plan=await rpc('prepare',{ids,grades,categories:['F'],targetId:'character',limit:2,reserve:true});
+    const one=await rpc('prepare',{ids,grades,categories:['F'],targetId:'character',limit:1,reserve:true,batchMode:'total'});
+    if(one.batch.length!==1 || one.batchMode!=='total') throw new Error('Total sizing was not retained by the DIM bridge');
+    const plan=await rpc('prepare',{ids,grades,categories:['F'],targetId:'character',limit:2,reserve:true,batchMode:'total'});
     return rpc('transfer',{token:plan.token});
   });
   assert.equal(result.moved,2);

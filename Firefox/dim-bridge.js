@@ -20,7 +20,7 @@
         }
       }
     }
-    throw new Error('No se encontró el inventario de DIM. Inicia sesión, abre Inventario, expande Armas y pulsa Actualizar.');
+    throw new Error('DIM inventory was not found. Sign in, open Inventory, expand Weapons and click Refresh inventory.');
   }
   function snapshot() {
     const state = getStore().getState();
@@ -58,14 +58,14 @@
       for (const i of stores.flatMap(t => t.items)) if (i.bucket?.inWeapons) capacity[String(i.bucket.hash)] = i.bucket.capacity;
       for (const i of s.items) if (i.bucket?.inWeapons && !i.location?.inPostmaster) occupied[String(i.bucket.hash)] = (occupied[String(i.bucket.hash)] || 0) + 1;
       for (const bucket of Object.keys(capacity)) occupied[bucket] ||= 0;
-      return { id: s.id, name: `${s.className || s.name}${s.current ? ' · activo' : ''}`, current: s.current, isVault: false, capacity, occupied };
+      return { id: s.id, name: `${s.className || s.name}${s.current ? ' · active' : ''}`, current: s.current, isVault: false, capacity, occupied };
     });
     const checks = [];
-    if (version !== 2) checks.push('Abre tu cuenta de Destiny 2.');
-    if (!state.inventory.live || state.inventory.mockProfileData) checks.push('DIM no está conectado al inventario real.');
-    if (!state.dimApi?.profileLoaded || !profile) checks.push('DIM todavía no cargó las etiquetas y loadouts.');
-    if (!native) checks.push('No se pudieron verificar los loadouts guardados dentro del juego.');
-    if (!rows.length) checks.push('El inventario de armas está vacío o sigue cargando.');
+    if (version !== 2) checks.push('Open your Destiny 2 account.');
+    if (!state.inventory.live || state.inventory.mockProfileData) checks.push('DIM is not connected to the live inventory.');
+    if (!state.dimApi?.profileLoaded || !profile) checks.push('DIM has not loaded tags and loadouts yet.');
+    if (!native) checks.push('In-game loadouts could not be verified.');
+    if (!rows.length) checks.push('The weapon inventory is empty or still loading.');
     return { items: rows, characters: chars, canTransfer: !checks.length, warnings: checks, at: Date.now(), accountKey: key, source: 'live' };
   }
   function search(ids) {
@@ -73,8 +73,8 @@
   }
   async function waitFor(predicate, timeout = 7000) {
     const deadline = Date.now() + timeout;
-    while (Date.now() < deadline) { const result = predicate(); if (result) return result; if (stopped) throw new Error('Tanda detenida.'); await delay(150); }
-    throw new Error('DIM no respondió a tiempo. Actualiza el inventario antes de intentar otra tanda.');
+    while (Date.now() < deadline) { const result = predicate(); if (result) return result; if (stopped) throw new Error('Batch stopped.'); await delay(150); }
+    throw new Error('DIM did not respond in time. Refresh inventory before trying another batch.');
   }
   function ancestors(el) {
     const result = []; let f = fiber(el);
@@ -94,25 +94,25 @@
   }
   async function moveOne(itemId, targetId, plan) {
     let fresh = snapshot();
-    if (!fresh.canTransfer || fresh.accountKey !== plan.accountKey) throw new Error('La cuenta o la conexión de DIM cambió. Actualiza el inventario.');
+    if (!fresh.canTransfer || fresh.accountKey !== plan.accountKey) throw new Error('The DIM account or connection changed. Refresh inventory.');
     const item = fresh.items.find(i => i.id === itemId);
-    if (!item || !C.canSelect(item, plan.grades, plan.categories, plan.mode)) throw new Error('Esta arma cambió o no puede trasladarse en este modo.');
+    if (!item || !C.canSelect(item, plan.grades, plan.categories, plan.mode)) throw new Error('This weapon changed or cannot be transferred in this mode.');
     const target = fresh.characters.find(c => c.id === targetId);
-    if (!C.planBatch(fresh.items, plan.grades, [itemId], target, plan.categories, 1, plan.reserve, plan.mode).batch.length) throw new Error('No queda espacio libre en la ranura de destino.');
+    if (!C.planBatch(fresh.items, plan.grades, [itemId], target, plan.categories, 1, plan.reserve, plan.mode, plan.batchMode).batch.length) throw new Error('No space remains in the destination slot.');
     let tile = document.getElementById(itemId);
     if (!tile || !tile.classList.contains('item')) {
       search([itemId]);
       getStore().dispatch({ type: 'shell/TOGGLE_SEARCH_RESULTS', payload: true });
       tile = await waitFor(() => [...document.querySelectorAll('.item')].find(el => ancestors(el).some(p => p.item?.id === itemId)));
     }
-    if (!ancestors(tile).some(p => p.item?.id === itemId)) throw new Error('No se pudo confirmar la copia del arma en DIM.');
+    if (!ancestors(tile).some(p => p.item?.id === itemId)) throw new Error('The exact weapon copy could not be verified in DIM.');
     tile.click();
     const mover = await waitFor(() => findMover(itemId, targetId));
     // Recheck immediately before native DIM action. No equipment action is called.
     fresh = snapshot();
-    if (!fresh.canTransfer || fresh.accountKey !== plan.accountKey) throw new Error('La conexión o la cuenta cambió antes del traslado.');
-    if (!C.planBatch(fresh.items, plan.grades, [itemId], fresh.characters.find(c => c.id === targetId), plan.categories, 1, plan.reserve, plan.mode).batch.length) throw new Error('Esta arma o el espacio disponible cambió antes del traslado.');
-    if (stopped) throw new Error('Tanda detenida.');
+    if (!fresh.canTransfer || fresh.accountKey !== plan.accountKey) throw new Error('The account or connection changed before the transfer.');
+    if (!C.planBatch(fresh.items, plan.grades, [itemId], fresh.characters.find(c => c.id === targetId), plan.categories, 1, plan.reserve, plan.mode, plan.batchMode).batch.length) throw new Error('This weapon or the available space changed before the transfer.');
+    if (stopped) throw new Error('Batch stopped.');
     mover();
     await waitFor(() => snapshot().items.find(i => i.id === itemId && i.owner === targetId && i.equipped === false), 30000);
   }
@@ -123,7 +123,7 @@
     const { requestId, action, payload = {} } = request;
     try {
       if (action === 'stop') { stopped = true; emit('reply', { requestId, data: { stopped: true } }); return; }
-      if (running) throw new Error('Hay una tanda en curso. Espera o pulsa Detener.');
+      if (running) throw new Error('A batch is running. Wait or click Stop.');
       if (action === 'snapshot') { emit('reply', { requestId, data: snapshot() }); return; }
       if (action === 'search') { search(payload.ids || []); emit('reply', { requestId, data: { ok: true } }); return; }
       if (action === 'prepare') {
@@ -131,14 +131,15 @@
         if (!snap.canTransfer) throw new Error(snap.warnings.join(' '));
         const target = snap.characters.find(c => c.id === payload.targetId);
         const mode = payload.mode === 'manual' ? 'manual' : 'clean';
-        const result = C.planBatch(snap.items, payload.grades || {}, payload.ids || [], target, payload.categories || [], payload.limit, payload.reserve, mode);
-        if (!result.batch.length) throw new Error('No hay candidatos con espacio disponible para esta tanda.');
-        prepared = { ...payload, mode, ids: result.batch.map(i => i.id), accountKey: snap.accountKey, token: crypto.randomUUID(), expires: Date.now() + 120000 };
-        emit('reply', { requestId, data: { token: prepared.token, batch: result.batch, target, skipped: result.skipped, counts: result.counts, mode } }); return;
+        const batchMode = payload.batchMode === 'total' ? 'total' : 'slot';
+        const result = C.planBatch(snap.items, payload.grades || {}, payload.ids || [], target, payload.categories || [], payload.limit, payload.reserve, mode, batchMode);
+        if (!result.batch.length) throw new Error('No eligible selected weapons have space available for this batch.');
+        prepared = { ...payload, mode, batchMode, ids: result.batch.map(i => i.id), accountKey: snap.accountKey, token: crypto.randomUUID(), expires: Date.now() + 120000 };
+        emit('reply', { requestId, data: { token: prepared.token, batch: result.batch, target, skipped: result.skipped, counts: result.counts, mode, batchMode } }); return;
       }
       if (action === 'transfer') {
         const plan = prepared; prepared = null;
-        if (!plan || plan.token !== payload.token || plan.expires < Date.now()) throw new Error('La revisión de la tanda venció. Prepárala de nuevo.');
+        if (!plan || plan.token !== payload.token || plan.expires < Date.now()) throw new Error('The batch review expired. Prepare it again.');
         running = true; stopped = false;
         let moved = 0;
         try {
@@ -151,11 +152,11 @@
             await delay(350);
           }
           emit('reply', { requestId, data: { moved, stopped, snapshot: snapshot() } });
-        } catch (error) { emit('reply', { requestId, error: `Tanda detenida después de ${moved} traslado(s) confirmado(s). ${error.message}` }); }
+        } catch (error) { emit('reply', { requestId, error: `Batch stopped after ${moved} confirmed transfer(s). ${error.message}` }); }
         finally { running = false; }
         return;
       }
-      throw new Error('Acción desconocida.');
+      throw new Error('Unknown action.');
     } catch (error) { emit('reply', { requestId, error: error.message }); }
   });
 })();

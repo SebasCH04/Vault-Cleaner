@@ -12,7 +12,7 @@
   function rpc(action, payload) {
     return new Promise((resolve, reject) => {
       const requestId = crypto.randomUUID();
-      const timer = setTimeout(() => { pending.delete(requestId); reject(new Error('La conexión con DIM venció. Recarga DIM.')); }, action === 'transfer' ? 900000 : 12000);
+      const timer = setTimeout(() => { pending.delete(requestId); reject(new Error('The DIM connection timed out. Reload DIM.')); }, action === 'transfer' ? 900000 : 12000);
       pending.set(requestId, { resolve, reject, timer });
       document.dispatchEvent(new CustomEvent('vault-cleaner-request', { detail: JSON.stringify({ requestId, action, payload }) }));
     });
@@ -26,7 +26,7 @@
     onProgress: callback => { onProgress = callback; }, onGradesChanged: callback => { onGrades = callback; }
   };
   browser.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.vcGrades) onGrades(); });
-  const toggle = document.createElement('button'); toggle.textContent = '◇  Limpiar vault';
+  const toggle = document.createElement('button'); toggle.textContent = '◇  Vault Cleaner';
   Object.assign(toggle.style, { position: 'fixed', right: '22px', bottom: '22px', zIndex: '2147483600', padding: '12px 18px', color: '#14210e', background: '#bbec84', border: '1px solid #d4ffaf', borderRadius: '10px', boxShadow: '0 5px 24px #0008', font: '600 13px system-ui', cursor: 'pointer' });
   document.body.append(toggle);
   let host = null, panel = null;

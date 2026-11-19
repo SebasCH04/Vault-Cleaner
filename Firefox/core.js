@@ -53,23 +53,23 @@
   function gradeFor(item, grades, now = Date.now()) { return gradeDetails(item, grades, now)?.effective || null; }
   function transferReasons(item) {
     const out = [];
-    if (!item.weapon) out.push('Armadura u otro objeto');
-    if (item.owner !== 'vault') out.push('Fuera del vault');
-    if (item.equipped !== false) out.push('Equipada o estado desconocido');
-    if (item.notransfer || item.postmaster) out.push('No transferible');
+    if (!item.weapon) out.push('Armor or another item');
+    if (item.owner !== 'vault') out.push('Outside the vault');
+    if (item.equipped !== false) out.push('Equipped or unknown state');
+    if (item.notransfer || item.postmaster) out.push('Not transferable');
     return out;
   }
   function reasons(item, grades, now = Date.now()) {
     const out = transferReasons(item);
-    if (item.locked !== false) out.push('Bloqueada o estado desconoccido');
-    if (['favorite', 'keep', 'archive'].includes(item.tag)) out.push('Favorita / conservar / archivar');
-    if (item.inLoadout) out.push('En un loadout');
-    if (item.exotic) out.push('Exótica');
-    if (item.crafted) out.push('Fabricada');
+    if (item.locked !== false) out.push('Locked or unknown state');
+    if (['favorite', 'keep', 'archive'].includes(item.tag)) out.push('Favorite / keep / archive');
+    if (item.inLoadout) out.push('In a loadout');
+    if (item.exotic) out.push('Exotic');
+    if (item.crafted) out.push('Crafted');
     if (item.deepsight) out.push('Deepsight');
     const details = gradeDetails(item, grades, now);
-    if (!details) out.push('Sin nota reciente de light.gg');
-    else if (!details.best) out.push(details.conflict ? 'Rangos contradictorios: sincroniza de nuevo' : 'Máximo sin confirmar: sincroniza Best Available');
+    if (!details) out.push('No recent light.gg rank');
+    else if (!details.best) out.push(details.conflict ? 'Conflicting ranks: sync again' : 'Maximum unconfirmed: sync Best Available');
     return out;
   }
   function eligible(item, grades, categories, now = Date.now()) {
@@ -79,9 +79,10 @@
   function canSelect(item, grades, categories, mode = 'clean', now = Date.now()) {
     return mode === 'manual' ? transferReasons(item).length === 0 : Boolean(eligible(item, grades, categories, now));
   }
-  function planBatch(items, grades, selectedIds, target, categories, limit = 9, reserve = false, mode = 'clean') {
-    if (!target || target.isVault) throw new Error('Selecciona un personaje.');
-    const max = Math.max(1, Math.min(9, Math.floor(Number(limit) || 9)));
+  function planBatch(items, grades, selectedIds, target, categories, limit = 9, reserve = false, mode = 'clean', batchMode = 'slot') {
+    if (!target || target.isVault) throw new Error('Select a character.');
+    const totalMode = batchMode === 'total';
+    const max = Math.max(1, Math.min(totalMode ? 27 : 9, Math.floor(Number(limit) || 9)));
     const keep = reserve ? 1 : 0;
     const selected = new Set(selectedIds.map(normalizeId).filter(Boolean));
     const used = Object.create(null);
@@ -89,13 +90,13 @@
     const skipped = [];
     for (const item of items) {
       if (!selected.has(item.id)) continue;
-      if (!canSelect(item, grades, categories, mode)) { skipped.push({ id: item.id, reason: mode === 'manual' ? 'No se puede trasladar esta copia desde el vault.' : 'Ahora está protegida o no tiene un máximo válido.' }); continue; }
+      if (!canSelect(item, grades, categories, mode)) { skipped.push({ id: item.id, reason: mode === 'manual' ? 'This copy cannot be transferred from the vault.' : 'This copy is now protected or has no valid maximum.' }); continue; }
       const capacity = target.capacity?.[item.bucket];
       const occupied = target.occupied?.[item.bucket];
-      if (!Number.isInteger(capacity) || !Number.isInteger(occupied)) { skipped.push({ id: item.id, reason: 'No se pudo verificar la capacidad.' }); continue; }
+      if (!Number.isInteger(capacity) || !Number.isInteger(occupied)) { skipped.push({ id: item.id, reason: 'Capacity could not be verified.' }); continue; }
       const remaining = Math.max(0, capacity - occupied - keep - (used[item.bucket] || 0));
-      if (!remaining) { skipped.push({ id: item.id, reason: 'Sin espacio en esta ranura.' }); continue; }
-      if ((used[item.bucket] || 0) >= max || batch.length >= 27) { skipped.push({id:item.id,reason:'Límite de la tanda para esta ranura.'}); continue; }
+      if (!remaining) { skipped.push({ id: item.id, reason: 'No space in this slot.' }); continue; }
+      if ((used[item.bucket] || 0) >= (totalMode ? 9 : max) || batch.length >= (totalMode ? max : 27)) { skipped.push({id:item.id,reason:'Batch limit reached.'}); continue; }
       used[item.bucket] = (used[item.bucket] || 0) + 1;
       batch.push(item);
     }
@@ -103,7 +104,7 @@
   }
   function exactSearch(ids) {
     const safe = [...new Set(ids.map(normalizeId).filter(Boolean))];
-    if (!safe.length) throw new Error('No hay armas seleccionadas.');
+    if (!safe.length) throw new Error('No weapons selected.');
     return `(${safe.map(id => `id:${id}`).join(' or ')})`;
   }
   const api = { normalizeId, normalizeGrade, gradeOrder, extractGrades, gradeDetails, gradeFor, transferReasons, reasons, eligible, canSelect, planBatch, exactSearch, MAX_GRADE_AGE };

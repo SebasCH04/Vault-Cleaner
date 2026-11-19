@@ -58,7 +58,7 @@ test('A C that can reach S is classified as S and excluded from C/D/F cleaning',
 test('An unconfirmed displayed C is protected until the maximum is known', () => {
   const records={[id]:{grade:'C',basis:'displayed',at:now}};
   assert.ok(!C.eligible(base,records,['C']));
-  assert.ok(C.reasons(base,records).some(reason=>/máximo/i.test(reason)));
+  assert.ok(C.reasons(base,records).some(reason=>/maximum/i.test(reason)));
 });
 test('A confirmed Best Available capture works without inventing a current rank', () => {
   const records={[id]:{grade:'D+',bestGrade:'D+',basis:'best',at:now}};
@@ -89,6 +89,34 @@ test('A full batch holds 9 per slot and 27 total even when grouped by slot', () 
 test('A smaller per-slot limit applies independently to all three slots', () => {
   const plan=C.planBatch(many,manyGrades,many.map(i=>i.id),roomy,['F'],3,false);
   assert.equal(plan.batch.length,9);assert.deepEqual(plan.counts,{kinetic:3,energy:3,power:3});
+});
+test('A total limit of 9 means 9 weapons, rather than 9 from each slot', () => {
+  const plan=C.planBatch(many,manyGrades,many.map(i=>i.id),roomy,['F'],9,false,'clean','total');
+  assert.equal(plan.batch.length,9);
+  assert.deepEqual(plan.counts,{kinetic:9});
+  assert.equal(plan.skipped.length,27);
+});
+test('Total batches can mix slots while preserving the selected copies', () => {
+  const mixed=Array.from({length:12},(_,i)=>buckets.map(bucket=>many.find(item=>item.bucket===bucket && item.id===String(BigInt(id)+BigInt(buckets.indexOf(bucket)*100+i))))).flat();
+  const selected=mixed.slice(0,7).map(item=>item.id);
+  const plan=C.planBatch(mixed,manyGrades,selected,roomy,['F'],5,false,'clean','total');
+  assert.deepEqual(plan.batch.map(item=>item.id),selected.slice(0,5));
+  assert.deepEqual(plan.counts,{kinetic:2,energy:2,power:1});
+});
+test('A full slot does not stop a total batch from filling other slots', () => {
+  const target={...roomy,occupied:{kinetic:10,energy:6,power:2}};
+  const plan=C.planBatch(many,manyGrades,many.map(i=>i.id),target,['F'],9,false,'clean','total');
+  assert.equal(plan.batch.length,9);assert.deepEqual(plan.counts,{energy:4,power:5});
+});
+test('A total limit of 27 still respects each slot and extra reserve', () => {
+  const plan=C.planBatch(many,manyGrades,many.map(i=>i.id),roomy,['F'],27,true,'clean','total');
+  assert.equal(plan.batch.length,24);assert.deepEqual(plan.counts,{kinetic:8,energy:8,power:8});
+});
+test('A manual total batch limits ungraded selected weapons', () => {
+  const selected=many.filter((_,i)=>[0,14,29].includes(i)).map(item=>item.id);
+  const plan=C.planBatch(many,{},selected,roomy,[],2,false,'manual','total');
+  assert.deepEqual(plan.batch.map(item=>item.id),selected.slice(0,2));
+  assert.deepEqual(plan.counts,{kinetic:1,energy:1});
 });
 test('Existing inventory limits each slot and a full slot does not block other slots', () => {
   const target={...roomy,occupied:{kinetic:10,energy:6,power:2}};

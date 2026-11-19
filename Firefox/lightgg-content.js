@@ -80,7 +80,7 @@
   function update(force = false) {
     if (!label || (!force && performance.now() - lastUpdate < 300)) return;
     lastUpdate = performance.now();
-    label.textContent = `${stopped ? 'Detenida' : scanning ? 'Leyendo tarjetas' : stats.completed ? 'Captura lista' : 'Preparando lectura'} · ${seen.size} notas · ${maximumIds.size} máximos confirmados · ${count} guardadas · ${stats.ids || 0} IDs · ${stats.markers || 0} marcadores${!seen.size && stats.completed && !scanning ? ' · Si sigue en cero, descarga Diagnóstico.' : ''}`;
+    label.textContent = `${stopped ? 'Stopped' : scanning ? 'Reading cards' : stats.completed ? 'Capture complete' : 'Preparing capture'} · ${seen.size} ranks · ${maximumIds.size} confirmed maxima · ${count} saved · ${stats.ids || 0} IDs · ${stats.markers || 0} markers${!seen.size && stats.completed && !scanning ? ' · If this stays at zero, download Diagnostics.' : ''}`;
   }
   function collect(id, record) {
     const signature = JSON.stringify(record);
@@ -96,7 +96,7 @@
     try {
       const result = await browser.runtime.sendMessage({ type: 'save-grades', grades: batch, source: 'dom' });
       count = result.total; update(true);
-    } catch { if (label) label.textContent = 'No se pudieron guardar las notas. Recarga esta pestaña.'; }
+    } catch { if (label) label.textContent = 'Ranks could not be saved. Reload this tab.'; }
   }
   function wasResolved(node) {
     for (let n = node, i = 0; n && n !== document.body && i < MAX_ANCESTORS; n = n.parentElement, i++) if (processedRoots.has(n)) return true;
@@ -205,7 +205,7 @@
     clearTimeout(scanTimer); clearTimeout(sliceTimer); clearInterval(scrollTimer);
     scanTimer = sliceTimer = scrollTimer = null;
     scanning = false; dirty = false; walk = null;
-    flush(); update(true); if (control) control.textContent = 'Reanudar captura';
+    flush(); update(true); if (control) control.textContent = 'Resume capture';
   }
   function observe() {
     if (!observer || stopped) return;
@@ -213,7 +213,7 @@
   }
   function start() {
     stopped = false; session++; seen.clear(); maximumIds.clear(); stats.completed = false;
-    update(true); if (control) control.textContent = 'Detener captura';
+    update(true); if (control) control.textContent = 'Stop capture';
     observer = new MutationObserver(records => {
       for (const record of records) {
         const node = record.target.nodeType === 1 ? record.target : record.target.parentElement;
@@ -232,30 +232,30 @@
         const atBottom = scrollY + innerHeight >= document.documentElement.scrollHeight - 30;
         if (atBottom) bottomSince ||= Date.now(); else bottomSince = null;
         if (bottomSince && Date.now() - bottomSince > 8000 && Date.now() - lastNew > 8000) {
-          stop(); label.textContent = `Recorrido terminado · ${seen.size} notas. Vuelve a DIM y pulsa Actualizar. Las vistas o páginas restantes aún pueden faltar.`;
+          stop(); label.textContent = `Capture finished · ${seen.size} ranks. Return to DIM and click Refresh inventory. Other views or pages may still be missing.`;
         }
       }, 1500);
     }
   }
   function diagnostic() {
-    const report = { version: '0.1.7', captureBasis, confirmedMaxima:maximumIds.size, page: location.pathname, state: stopped ? 'stopped' : scanning ? 'scanning' : 'idle', capturedThisSession: seen.size, saved: count, counters: stats, samples, limits: { maxCardNodes: MAX_CARD_NODES, maxAncestors: MAX_ANCESTORS, sliceMs: SLICE_MS } };
+    const report = { version: '0.1.8', captureBasis, confirmedMaxima:maximumIds.size, page: location.pathname, state: stopped ? 'stopped' : scanning ? 'scanning' : 'idle', capturedThisSession: seen.size, saved: count, counters: stats, samples, limits: { maxCardNodes: MAX_CARD_NODES, maxAncestors: MAX_ANCESTORS, sliceMs: SLICE_MS } };
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
-    const link = document.createElement('a'); link.href = url; link.download = 'Vault-Cleaner-diagnostico.json';
+    const link = document.createElement('a'); link.href = url; link.download = 'Vault-Cleaner-diagnostics.json';
     bar.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   function mount() {
     bar = document.createElement('div'); bar.id = 'vc-lightgg-status';
     Object.assign(bar.style, { position: 'fixed', bottom: '16px', left: '16px', right: '16px', zIndex: '2147483647', background: '#17241c', color: '#ecffe4', padding: '12px 16px', border: '1px solid #9cd96d', borderRadius: '12px', display: 'flex', gap: '12px', alignItems: 'center', font: '13px system-ui', boxShadow: '0 12px 40px #0008' });
     label = document.createElement('span'); label.style.flex = '1';
-    control = document.createElement('button'); control.textContent = 'Detener captura';
+    control = document.createElement('button'); control.textContent = 'Stop capture';
     control.addEventListener('click', () => stopped ? start() : stop());
-    const debug = document.createElement('button'); debug.textContent = 'Diagnóstico'; debug.onclick = diagnostic;
+    const debug = document.createElement('button'); debug.textContent = 'Diagnostics'; debug.onclick = diagnostic;
     bestMode = document.createElement('input'); bestMode.type = 'checkbox'; bestMode.id = 'vc-best-mode';
     const confirmation = document.createElement('label');
-    confirmation.append(bestMode,document.createTextNode(' Estoy viendo Best Available'));
-    confirmation.title = 'En light.gg: ☰ → Settings → Popularity Rank Display → Best Available. Marca después de que cambien las notas. Solo se lee el máximo; tú cambias los perks en light.gg.';
+    confirmation.append(bestMode,document.createTextNode(' I am viewing Best Available'));
+    confirmation.title = 'In light.gg: ☰ → Settings → Popularity Rank Display → Best Available. Check after ranks update. This only reads the maximum; you change perks in light.gg.';
     bestMode.addEventListener('change',()=>{stop();captureBasis=bestMode.checked ? 'best' : 'displayed';start();});
-    const help = document.createElement('span'); help.textContent = 'Máximo: light.gg → Settings → Popularity Rank Display → Best Available.'; help.style.fontSize='11px';
+    const help = document.createElement('span'); help.textContent = 'Maximum: light.gg → Settings → Popularity Rank Display → Best Available.'; help.style.fontSize='11px';
     bar.style.flexWrap = 'wrap';
     bar.append(label, help, confirmation, control, debug); document.body.append(bar);
     start();

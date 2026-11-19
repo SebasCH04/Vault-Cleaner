@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Vault Cleaner · Destiny 2",
-  "version": "0.1.7",
-  "description": "Revisa notas de light.gg y lleva candidatos del vault a tu personaje en tandas mediante DIM.",
+  "version": "0.1.8",
+  "description": "Review light.gg maximum ranks and transfer selected vault weapons to a character in batches through DIM.",
   "permissions": [
     "storage"
   ],
