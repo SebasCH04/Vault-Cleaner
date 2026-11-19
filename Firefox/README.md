@@ -1,4 +1,4 @@
-# Vault Cleaner · Destiny 2 · Base 0.1
+# Vault Cleaner · Destiny 2 · Base 0.1.1
 
 Extensión inicial para Firefox. Incluye un panel dentro de DIM y una demo interactiva sin conexión.
 
@@ -14,10 +14,20 @@ Extensión inicial para Firefox. Incluye un panel dentro de DIM y una demo inter
 
 Necesita Firefox 140 o posterior. Esta instalación de desarrollo es temporal: al cerrar completamente Firefox, tendrás que volver a cargar el complemento. No es un XPI firmado ni una versión publicada en la tienda. No requiere cambiar configuraciones de seguridad del navegador.
 
+## Sustituir la versión 0.1.0 que ralentizaba light.gg
+
+1. En la alerta de Firefox, pulsa Stop si el navegador está bloqueado.
+2. Abre `about:debugging#/runtime/this-firefox`, busca Vault Cleaner y pulsa Eliminar / Remove.
+3. Recarga las pestañas de light.gg y DIM. Esto retira el código anterior de las páginas.
+4. Extrae el ZIP actualizado en una carpeta nueva y carga su `vault-cleaner/manifest.json`.
+5. Comprueba que Firefox muestre **0.1.1**. Recarga DIM y vuelve a abrir Sincronizar light.gg.
+
+La captura anterior recorría repetidamente grandes subárboles de la página; además Detener solo suspendía el desplazamiento. La corrección limita las búsquedas a seis niveles y 96 nodos por contenedor, cede el control cada pocos milisegundos, revisa de nuevo solo cuando cambia la página y detiene tanto la captura como el recorrido. También se retiró la interceptación de fetch/XHR para evitar procesar las respuestas de light.gg. Se conservan las notas ya guardadas porque el ID de la extensión es el mismo.
+
 ## Primera prueba con tu inventario
 
 1. Pulsa **Sincronizar light.gg** en el panel. Se abrirá Roll Appraiser.
-2. Inicia sesión en light.gg si hace falta. Cuando haya armas visibles, la extensión recorrerá la página y guardará las notas que pueda asociar a una copia concreta. Puedes detener el recorrido.
+2. Inicia sesión en light.gg si hace falta. Cuando haya armas visibles, la extensión recorrerá la página y guardará las notas que pueda asociar a una copia concreta. Puedes detener toda la captura y reanudarla con el botón de la franja inferior.
 3. Vuelve a DIM y pulsa **Actualizar inventario**. Mira el contador: X armas con nota / Y armas totales.
 4. Las categorías C, D y F vienen marcadas. Selecciona las armas que quieras revisar.
 5. Elige tu personaje. Para probar por primera vez, pon **Máx. / tanda = 1**.
@@ -30,7 +40,7 @@ La extensión mueve objetos mediante los controles de DIM. No pide contraseñas,
 ## Qué incluye
 
 - Lectura del inventario completo de armas desde el estado de DIM; no depende de tener todas las tarjetas visibles.
-- Calificaciones de light.gg por ID de instancia, recogidas al visitar Roll Appraiser. Incluye captura de respuestas JSON y de tarjetas visibles.
+- Calificaciones de light.gg por ID de instancia, recogidas al visitar Roll Appraiser. Captura las tarjetas visibles en tareas pequeñas y con un límite por tarjeta; no intercepta las solicitudes de la página.
 - Categorías S/A/B/C/D/F, con variantes como C+ agrupadas dentro de su letra.
 - Búsqueda por arma y perk, selección individual o de las candidatas visibles.
 - Vistas Candidatas, Protegidas, Sin nota y Todas.
@@ -68,6 +78,10 @@ También se entrega `Vault-Cleaner-demo.html`, que reúne la demo en un único a
 2. Recarga DIM, entra a Inventario y expande Armas.
 3. Espera a que DIM termine de cargar y pulsa Actualizar en el panel.
 4. Si el error continúa, comparte el texto del error y una captura del panel. No hace falta copiar tokens ni usar la consola.
+
+## Prueba de rendimiento de la corrección 0.1.1
+
+En una página de prueba en Chromium con 1.300 tarjetas identificables y 200 contenedores sin ID (65.709 elementos DOM), se capturaron las 1.300 notas. Se ejecutó una sola búsqueda de tarjetas en reposo, sin tareas largas de 50 ms o más detectadas; el mayor intervalo del temporizador de respuesta fue 42,7 ms. Se comprobó que Detener evita nuevas búsquedas tras modificar la página, que Reanudar recoge tarjetas nuevas y que un cambio de ID en una tarjeta reutilizada se vuelve a evaluar. Esta medición corresponde al entorno de prueba; falta comprobar el resultado en tu Firefox con light.gg real.
 
 ## Pruebas y código
 
