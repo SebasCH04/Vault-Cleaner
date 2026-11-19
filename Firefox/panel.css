@@ -3,4 +3,4 @@
 /* Embedded panel prioritizes the inventory; the standalone demo keeps its introduction. */
 .app .intro{display:none}.standalone .app .intro{display:block}
 
-.improve-button{font-size:10px;padding:6px 8px;display:block;margin-top:7px;max-width:135px;background:#253c28;border-color:#567847;color:#cef0b5}.tabs{flex-wrap:wrap}
+.tabs{flex-wrap:wrap}

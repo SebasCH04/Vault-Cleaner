@@ -13,9 +13,6 @@
     const grade = value.trim().toUpperCase();
     return GRADE.test(grade) ? grade : null;
   }
-  function gradeOrder(grade) {
-    return 'SABCDF'.indexOf(grade[0]) * 3 + (grade.endsWith('+') ? 0 : grade.endsWith('-') ? 2 : 1);
-  }
   function extractGrades(data) {
     const result = Object.create(null);
     const seen = new WeakSet();
@@ -40,27 +37,12 @@
     walk(data, 0);
     return result;
   }
-  function gradeDetails(item, grades, now = Date.now()) {
+  function gradeFor(item, grades, now = Date.now()) {
     const record = grades[item.id];
     if (!record || !Number.isFinite(record.at) || now - record.at > MAX_GRADE_AGE || record.at > now + 60000) return null;
-    const fresh = at => Number.isFinite(at) && now-at <= MAX_GRADE_AGE && at <= now+60000;
-    const shown = normalizeGrade(record.grade);
-    const best = fresh(record.bestAt ?? record.at) ? normalizeGrade(record.bestGrade) : null;
-    const current = (fresh(record.currentAt ?? record.at) ? normalizeGrade(record.currentGrade) : null) || (record.basis !== 'best' ? shown : null);
-    if (!shown && !best && !current) return null;
-    // A maximum below the equipped rank is contradictory. Never clean from it.
-    const conflict = Boolean(best && current && gradeOrder(best) > gradeOrder(current));
-    const rankChecked = record.rankImprovementChecked === true && fresh(record.rankImprovementAt ?? record.at);
-    return { current, best: conflict ? null : best, effective: conflict ? current : best || current || shown, higherRankPossible: rankChecked && record.higherRankPossible === true, rankConfirmedFalse: rankChecked && record.higherRankPossible === false, conflict };
-  }
-  function improvementFor(item, grades, now = Date.now()) {
-    const details = gradeDetails(item, grades, now);
-    if (!item.weapon || !details || details.conflict || details.rankConfirmedFalse || item.postmaster) return 'none';
-    if (details.best && details.current) return gradeOrder(details.best) < gradeOrder(details.current) ? 'improvable' : 'none';
-    return details.higherRankPossible ? 'improvable' : 'none';
-  }
-  function gradeFor(item, grades, now = Date.now()) {
-    return gradeDetails(item, grades, now)?.effective || null;
+    // Old captures of a potential maximum must be refreshed as displayed ranks.
+    if (record.basis === 'best') return null;
+    return normalizeGrade(record.grade);
   }
   function reasons(item, grades, now = Date.now()) {
     const out = [];
@@ -74,9 +56,7 @@
     if (item.crafted) out.push('Fabricada');
     if (item.deepsight) out.push('Deepsight');
     if (item.notransfer || item.postmaster) out.push('No transferible');
-    const details = gradeDetails(item, grades, now);
-    if (!details) out.push('Sin nota reciente de light.gg');
-    else if (!details.best) out.push(details.conflict ? 'Rangos contradictorios: vuelve a sincronizar' : details.higherRankPossible ? 'Puede subir de rango; máximo sin confirmar' : 'Máximo sin confirmar: sincroniza Best Available');
+    if (!gradeFor(item, grades, now)) out.push('Sin nota reciente de light.gg');
     return out;
   }
   function eligible(item, grades, categories, now = Date.now()) {
@@ -110,7 +90,7 @@
     if (!safe.length) throw new Error('No hay armas seleccionadas.');
     return `(${safe.map(id => `id:${id}`).join(' or ')})`;
   }
-  const api = { normalizeId, normalizeGrade, gradeOrder, extractGrades, gradeDetails, improvementFor, gradeFor, reasons, eligible, planBatch, exactSearch, MAX_GRADE_AGE };
+  const api = { normalizeId, normalizeGrade, extractGrades, gradeFor, reasons, eligible, planBatch, exactSearch, MAX_GRADE_AGE };
   root.VaultCore = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(globalThis);

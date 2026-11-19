@@ -51,7 +51,6 @@
       exotic: i.rarity === 'Exotic', crafted: Boolean(i.craftedInfo),
       deepsight: Boolean(i.deepsightInfo), notransfer: Boolean(i.notransfer),
       postmaster: Boolean(i.location?.inPostmaster), power: i.power || 0,
-      alternativePerks: (i.sockets?.allSockets || []).some(s => s.isPerk && s.plugOptions?.length > 1),
       perks: (i.sockets?.allSockets || []).filter(s => s.isPerk && s.plugged).map(s => s.plugged.plugDef?.displayProperties?.name).filter(Boolean).slice(0, 8)
     })));
     const chars = stores.filter(s => !s.isVault).map(s => {

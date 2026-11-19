@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vault Cleaner · Destiny 2",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Revisa notas de light.gg y lleva candidatos del vault a tu personaje en tandas mediante DIM.",
   "permissions": [
     "storage"
@@ -13,7 +13,6 @@
   ],
   "background": {
     "scripts": [
-      "core.js",
       "background.js"
     ]
   },
@@ -46,16 +45,6 @@
       ],
       "world": "ISOLATED",
       "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://www.light.gg/god-roll/roll-appraiser/*"
-      ],
-      "js": [
-        "lightgg-native.js"
-      ],
-      "world": "MAIN",
-      "run_at": "document_start"
     },
     {
       "matches": [

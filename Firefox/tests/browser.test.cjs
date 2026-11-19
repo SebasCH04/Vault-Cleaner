@@ -15,6 +15,12 @@ const root = path.resolve(__dirname,'..');
   await page.locator('#app').locator('#total').waitFor();
   await page.waitForFunction(()=>document.querySelector('#app').shadowRoot.getElementById('total').textContent==='18');
   assert.equal(await page.locator('#candidates').textContent(),'6');
+  assert.deepEqual(await page.locator('#tabs button').allTextContents(),['Candidatas','Protegidas','Sin nota','Todas']);
+  assert.equal(await page.locator('th').nth(2).textContent(),'Rango');
+  assert.equal(await page.locator('#rated').textContent(),'15');
+  assert.equal(await page.locator('[data-improve]').count(),0);
+  assert.ok(!(await page.locator('#app').textContent()).includes('Para leer el máximo'));
+
   await page.screenshot({path:path.resolve(root,'../browser-panel-check.png'),fullPage:true});
   await page.locator('#select-visible').click();
   assert.equal(await page.locator('#selected-count').textContent(),'6');
@@ -66,7 +72,7 @@ const root = path.resolve(__dirname,'..');
   assert.equal(snap.items.length,2);assert.equal(snap.canTransfer,true);
   const result=await page.evaluate(async()=>{
     const ids=['6917530200300167753','6917530200300167754'];
-    const grades=Object.fromEntries(ids.map(id=>[id,{grade:'F',bestGrade:'F',at:Date.now()}]));
+    const grades=Object.fromEntries(ids.map(id=>[id,{grade:'F',at:Date.now()}]));
     const plan=await rpc('prepare',{ids,grades,categories:['F'],targetId:'character',limit:2,reserve:true});
     return rpc('transfer',{token:plan.token});
   });
