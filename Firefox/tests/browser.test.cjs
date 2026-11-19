@@ -1,0 +1,96 @@
+// npm install --no-save playwright @sparticuz/chromium
+// NODE_PATH=/path/to/node_modules node tests/browser.test.cjs
+const { chromium: playwright } = require('playwright');
+const chromiumModule = require(process.env.VC_CHROMIUM_MODULE || '@sparticuz/chromium');
+const chromium = chromiumModule.default || chromiumModule;
+const fs = require('node:fs');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const root = path.resolve(__dirname,'..');
+(async () => {
+  const browser=await playwright.launch({executablePath:await chromium.executablePath(),args:chromium.args,headless:true});
+  const page=await browser.newPage({viewport:{width:1440,height:1080}});
+  const errors=[]; page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('file://'+root+'/preview/demo.html');
+  await page.locator('#app').locator('#total').waitFor();
+  await page.waitForFunction(()=>document.querySelector('#app').shadowRoot.getElementById('total').textContent==='18');
+  assert.equal(await page.locator('#candidates').textContent(),'6');
+  await page.screenshot({path:path.resolve(root,'../Vault-Cleaner-vista-previa.png'),fullPage:true});
+  await page.locator('#select-visible').click();
+  assert.equal(await page.locator('#selected-count').textContent(),'6');
+  await page.locator('#limit').fill('2');
+  await page.locator('#prepare').click();
+  assert.match(await page.locator('#review-title').textContent(),/^2 armas/);
+  await page.locator('#confirm-plan').click();
+  await page.waitForFunction(()=>document.querySelector('#app').shadowRoot.getElementById('status').textContent.includes('2 arma(s) trasladada(s)'));
+  assert.equal(await page.locator('#candidates').textContent(),'4');
+  console.log('PASS preview: grade filters, select, review, size limit, simulated transfer and refreshed candidates');
+  await page.locator('[data-view=ungraded]').click();
+  assert.equal(await page.locator('#rows tr').count(),3);
+  console.log('PASS preview: ungraded items kept outside eligible candidates');
+  await page.setContent('<html><body><div class="item" id="6917530200300167753">Weapon 1</div><div class="item" id="6917530200300167754">Weapon 2</div><div id="popup"></div></body></html>');
+  await page.addScriptTag({path:root+'/core.js'});
+  await page.evaluate(()=>{
+    const make=id=>({id,name:'Weapon '+id.slice(-1),typeName:'Rifle',bucket:{inWeapons:true,hash:1498876634,capacity:10,name:'Energy'},owner:'vault',locked:false,equipped:false,location:{inPostmaster:false},rarity:'Legendary',amount:1,icon:'',sockets:{allSockets:[]}});
+    const first=make('6917530200300167753'),second=make('6917530200300167754');
+    const target={id:'character',name:'Hunter',className:'Hunter',isVault:false,current:true,items:[]};
+    const vault={id:'vault',name:'Vault',isVault:true,items:[first,second]};
+    window.state={accounts:{currentAccountDestinyVersion:2,currentAccountMembershipId:'account'},inventory:{stores:[vault,target],live:true,profileResponse:{characterLoadouts:{data:{character:{loadouts:[]}}}}},dimApi:{profileLoaded:true,profiles:{'account-d2':{loadouts:{},tags:{}}}},inGameLoadouts:{loadouts:{}}};
+    window.calls=[];
+    const provider={memoizedProps:{store:{getState:()=>window.state,dispatch:()=>{}}},return:null};
+    for(const item of [first,second]){
+      const tile=document.getElementById(item.id);
+      tile.__reactFiberFake={memoizedProps:{item},return:provider};
+      tile.onclick=()=>{
+        const popup=document.getElementById('popup');popup.replaceChildren();
+        // An EQUIP control appears first; only STORE may be chosen.
+        const itemFiber={memoizedProps:{item},return:provider};
+        for(const type of ['equip','store']){
+          const btn=document.createElement('button');btn.textContent=type;
+          btn.__reactFiberFake={memoizedProps:{},return:{memoizedProps:{type,actionsModel:{store:[{store:target,enabled:true}]},submitMoveTo:(store,equip)=>{
+            window.calls.push({id:item.id,type,equip,target:store.id});
+            if(type==='store'&&equip===false){item.owner=store.id;target.items.push(item);vault.items=vault.items.filter(i=>i.id!==item.id);popup.replaceChildren();}
+          }},return:itemFiber}};popup.append(btn);
+        }
+      };
+    }
+    window.rpc=(action,payload={})=>new Promise((resolve,reject)=>{
+      const requestId=crypto.randomUUID();
+      const handler=e=>{const r=JSON.parse(e.detail);if(r.requestId===requestId){document.removeEventListener('vault-cleaner-response',handler);r.error?reject(new Error(r.error)):resolve(r.data);}};
+      document.addEventListener('vault-cleaner-response',handler);
+      document.dispatchEvent(new CustomEvent('vault-cleaner-request',{detail:JSON.stringify({requestId,action,payload})}));
+    });
+  });
+  await page.addScriptTag({path:root+'/dim-bridge.js'});
+  const snap=await page.evaluate(()=>rpc('snapshot'));
+  assert.equal(snap.items.length,2);assert.equal(snap.canTransfer,true);
+  const result=await page.evaluate(async()=>{
+    const ids=['6917530200300167753','6917530200300167754'];
+    const grades=Object.fromEntries(ids.map(id=>[id,{grade:'F',at:Date.now()}]));
+    const plan=await rpc('prepare',{ids,grades,categories:['F'],targetId:'character',limit:2,reserve:true});
+    return rpc('transfer',{token:plan.token});
+  });
+  assert.equal(result.moved,2);
+  const calls=await page.evaluate(()=>calls);
+  assert.equal(calls.length,2);assert.ok(calls.every(c=>c.type==='store'&&c.equip===false));
+  assert.ok(result.snapshot.items.every(i=>i.owner==='character'));
+  console.log('PASS DIM bridge: exact instance IDs, native STORE callback, no EQUIP call, confirmed destination');
+  const blocked=await page.evaluate(async()=>{
+    state.dimApi.profileLoaded=false;
+    const snap=await rpc('snapshot');
+    try{await rpc('prepare',{ids:[],grades:{},categories:['F'],targetId:'character'});return {snap,blocked:false};}catch{return {snap,blocked:true};}
+  });
+  assert.equal(blocked.snap.canTransfer,false);assert.equal(blocked.blocked,true);
+  console.log('PASS DIM bridge: missing protection data prevents preparation');
+  // DOM capture rejects a container shared by two instance IDs.
+  await page.setContent('<div data-id="6917530200300167753"><img class="quality" title="Popularity (D)"></div><div data-id="6917530200300167754"><img class="quality" title="Popularity (A)"></div><div data-id="6917530200300167755"><span data-id="6917530200300167756"></span><img class="quality" title="Popularity (F)"></div>');
+  await page.addScriptTag({path:root+'/core.js'});
+  await page.evaluate(()=>{window.saved=[];window.browser={runtime:{sendMessage:async m=>{saved.push(m);return {total:2};}}};});
+  await page.addScriptTag({path:root+'/lightgg-content.js'});
+  await page.waitForFunction(()=>window.saved.length>0);
+  const capture=await page.evaluate(()=>saved[0].grades);
+  assert.equal(capture['6917530200300167753'],'D');assert.equal(capture['6917530200300167754'],'A');assert.equal(capture['6917530200300167755'],undefined);
+  console.log('PASS light.gg capture: exact copy grading; ambiguous containers ignored');
+  assert.deepEqual(errors,[]);
+  await browser.close();
+})().catch(error=>{console.error(error);process.exitCode=1;});
