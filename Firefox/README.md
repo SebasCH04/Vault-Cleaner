@@ -4,18 +4,20 @@ A Firefox extension with Weapons and Armor panels inside DIM and an offline inte
 
 ## Install or update
 
-1. Extract the Firefox ZIP into a folder.
+For a permanent installation, use the signed XPI in the [installation guide](../Installation-and-Publishing.md#install-on-firefox). For temporary testing, follow these steps.
+
+1. Extract the [Firefox AMO ZIP](../packages/Vault-Cleaner-v0.3.7-Firefox-AMO.zip) into a folder.
 2. Open `about:debugging#/runtime/this-firefox` in Firefox.
 3. Remove the previous temporary Vault Cleaner extension, if installed.
 4. Click **Load Temporary Add-on** and select `manifest.json` in the extracted folder.
-5. Check version **0.3.6** in Firefox's extension details, then reload **DIM**. Reload any already-open Roll Appraiser tab if you use it.
+5. Check version **0.3.7** in Firefox's extension details, then reload **DIM**. Reload any already-open Roll Appraiser tab if you use it.
 6. Open DIM and click **Vault Cleaner** in the bottom-right corner.
 
 Temporary Firefox extensions must be loaded again after restarting Firefox. No Aegis extension is required. This package does not bundle Aegis.
 
 ## Automatic light.gg sync
 
-Opening Vault Cleaner shows saved ratings immediately and starts a background sync when DIM's inventory is ready. The extension opens a light.gg tab without switching away from DIM. It reads the Roll Appraiser's maximum ranks and Overall from its inventory model, updates the panel automatically, and closes the tab it opened. Successful automatic syncs pause for 15 minutes before checking again. **Sync light.gg** starts another check on demand.
+Opening Vault Cleaner shows saved ratings immediately and starts a background sync when DIM's inventory is ready. The extension opens a light.gg tab without switching away from DIM. It reads the Roll Appraiser's maximum ranks and Overall from its inventory model, updates the panel automatically, and closes the tab it opened. Successful automatic syncs pause for 15 minutes before checking again. The **Sync light.gg** icon in the top-right corner starts another check on demand.
 
 If the light.gg session has expired, the panel offers a link to the Roll Appraiser for sign-in. The extension matches exact weapon IDs from the current DIM inventory. If none match, check that light.gg is using the same account and platform. Saved ratings stay available if a sync is interrupted or times out.
 
@@ -107,7 +109,7 @@ Manual transfer still excludes non-weapons, copies outside the vault, postmaster
 
 **Total weapons in your inventory** includes the vault and characters; it is not the vault's item count. Armor and other non-weapon items are excluded. **Weapons with a confirmed maximum** remains a subset of the whole inventory; **vault candidates** applies your rank selection and cleanup protections. The rank buttons have their own clearly labeled vault-only scope.
 
-**Refresh inventory** now invokes DIM’s native inventory refresh and waits for it to complete; it does not just reread cached data. The panel follows DIM inventory changes automatically, updates after each confirmed transfer, and requests a refresh when you return to its visible tab after working in-game. If cached data reports that all selected slots are full, preparation refreshes DIM once and recalculates before rejecting the batch. A genuinely full slot still prevents transfer.
+The **Refresh inventory** icon next to the close button starts DIM’s native inventory refresh and waits for it to complete. The panel follows DIM inventory changes automatically, updates after each confirmed transfer, and requests a refresh when you return to its visible tab after working in-game. If cached data reports that all selected slots are full, preparation refreshes DIM once and recalculates before rejecting the batch. A genuinely full slot still prevents transfer.
 
 Space accounting follows DIM’s actual item locations, includes equipped weapons and armor in their respective slots, and excludes postmaster/other locations. After dismantling, Bungie and DIM must publish the updated inventory before those spaces can be used.
 
@@ -127,7 +129,7 @@ If Overall remains at zero, **Diagnostics** reports whether the Roll Appraiser m
 
 ## Offline demo
 
-Open `Vault-Cleaner-demo.html` from the ZIP. It contains sample weapons and armor and simulates transfers without connecting to an account. Try Weapons → Duplicates: sample S/A copies retain the S with the highest Overall, including a lower-scoring Stability-masterwork copy in cleanup. Two equal A/82% copies require your keeper choice. Also try the Armor tab, sets, archetype filters, Compare, transfer modes, sizing options and review.
+Download and open [`Vault-Cleaner-demo.html`](Vault-Cleaner-demo.html) from this repository. It contains sample weapons and armor and simulates transfers without connecting to an account. Try Weapons → Duplicates: sample S/A copies retain the S with the highest Overall, including a lower-scoring Stability-masterwork copy in cleanup. Two equal A/82% copies require your keeper choice. Also try the Armor tab, sets, archetype filters, Compare, transfer modes, sizing options and review.
 
 ## Development checks
 
