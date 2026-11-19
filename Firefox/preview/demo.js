@@ -17,7 +17,7 @@
   snap.items.forEach((item, i) => { if (letters[i]) grades[item.id] = { grade: letters[i], bestGrade:letters[i], currentGrade:letters[i], basis: 'best', at: now, source: 'demo' }; });
   Object.assign(grades[snap.items[6].id],{grade:'S',bestGrade:'S',currentGrade:'C'});
   Object.assign(grades[snap.items[13].id],{grade:'B-',bestGrade:'B-',currentGrade:'D'});
-  // Sample weapon duplicates include a maximum-S copy and unselected perks.
+  // Rank and Overall decide the retained copy even with different perks or masterworks.
   const rollColumns = ['Adaptive Frame','Arrowhead Brake','Accurized Rounds','Explosive Payload','Kinetic Tremors'].map((name,index)=>({
     index,type:1100+index,category:1200+index,name:index ? 'Perk slot '+index : 'Frame',options:[{hash:1300+index,name}]}));
   const weaponData = {complete:true,tier:0,adept:false,holofoil:false,element:1,masterwork:10,masterworkType:'Range',masterworkName:'Range',
@@ -29,7 +29,14 @@
     if(n===2){item.weaponData.masterwork=5;item.weaponData.columns[4].options=[{hash:1304,name:'Kinetic Tremors'}];}
     else item.weaponData.columns[4].options.push({hash:1314,name:'Frenzy'});
     if(n===3)item.weaponData.masterworkType=item.weaponData.masterworkName='Stability';
-    snap.items.push(item);grades[item.id]={grade:n===2 ? 'A' : 'S',bestGrade:n===2 ? 'A' : 'S',currentGrade:n===1 ? 'C' : n===2 ? 'A' : 'S',basis:'best',at:now,source:'demo'};
+    const rank=n===2 ? 'A' : 'S';
+    snap.items.push(item);grades[item.id]={grade:rank,bestGrade:rank,currentGrade:n===1 ? 'C' : rank,basis:'best',at:now,source:'demo',
+      bestOverall:[95,91,87,93][n],bestOverallGrade:rank,bestOverallAt:now};
+  }
+  for (let n=0;n<2;n++) {
+    const item={id:String(6917530200000020010n+BigInt(n)),hash:904,name:'The Recluse',type:'Submachine gun',bucket:'kinetic',bucketName:'Kinetic',
+      owner:'vault',ownerName:'Vault',weapon:true,locked:false,equipped:false,power:550,perks:n ? ['Subsistence','Frenzy'] : ['Subsistence','Desperate Measures']};
+    snap.items.push(item);grades[item.id]={grade:'A',bestGrade:'A',currentGrade:'A',basis:'best',at:now,source:'demo',bestOverall:82,bestOverallGrade:'A',bestOverallAt:now};
   }
   // Illustrative armor rolls: a complete set, duplicates, distinct archetypes,
   // unique tuning choices, legacy armor and comparable exotic copies.
@@ -57,14 +64,15 @@
   addArmor(3,{hash:902,name:'Other Set Strides',armorData:{...armor[0].armorData,setHash:101,setName:'Aion Renewal'}});
   snap.items.push(...armor);
   for (const character of snap.characters) for (const bucket of VaultCore.ARMOR_SLOTS) { character.capacity[bucket] = 10; character.occupied[bucket] = 1; }
-  let plan = null, progress = () => {}, stopped = false;
+  let plan = null, progress = () => {}, stopped = false, keepers = {};
   const adapter = {
     snapshot: async () => structuredClone(snap), grades: async () => structuredClone(grades),
+    keepers: async () => structuredClone(keepers), saveKeepers: async choices => {keepers=structuredClone(choices);},
     prepare: async payload => {
       const target = snap.characters.find(c => c.id === payload.targetId);
-      const result = VaultCore.planBatch(snap.items, grades, payload.ids, target, payload.categories, payload.limit, payload.reserve, payload.mode, payload.batchMode, payload.kind);
+      const result = VaultCore.planBatch(snap.items, grades, payload.ids, target, payload.categories, payload.limit, payload.reserve, payload.mode, payload.batchMode, payload.kind, payload.keeperChoices);
       if (!result.batch.length) throw new Error('No space is available for this batch.');
-      const analysis = payload.kind === 'armor' ? VaultCore.armorAnalysis(snap.items) : payload.mode === 'duplicates' ? VaultCore.weaponAnalysis(snap.items,grades) : null;
+      const analysis = payload.kind === 'armor' ? VaultCore.armorAnalysis(snap.items) : payload.mode === 'duplicates' ? VaultCore.weaponAnalysis(snap.items,grades,Date.now(),payload.keeperChoices) : null;
       const replacements = analysis && payload.mode !== 'manual' ? Object.fromEntries(result.batch.map(i=>[i.id,analysis.records[i.id].keeperId])) : {};
       plan = { ...payload, ...result, replacements, token: crypto.randomUUID(), target };
       return structuredClone(plan);

@@ -1,6 +1,6 @@
 # Vault Cleaner · Destiny 2
 
-A Firefox extension with Weapons and Armor panels inside DIM and an offline interactive demo. Weapons use each exact copy's highest confirmed light.gg popularity rank, with a separate duplicate cleanup section that preserves distinct rolls. Armor cleanup identifies verified duplicates while preserving distinct rolls, tuning options and sets. The interface is in English.
+A Firefox extension with Weapons and Armor panels inside DIM and an offline interactive demo. Weapons use each exact copy's highest confirmed light.gg popularity rank, with a separate duplicate cleanup section that retains the highest-ranked copy of each weapon, then uses Overall to break ties. Armor cleanup identifies verified duplicates while preserving distinct rolls, tuning options and sets. The interface is in English.
 
 ## Install or update
 
@@ -8,7 +8,7 @@ A Firefox extension with Weapons and Armor panels inside DIM and an offline inte
 2. Open `about:debugging#/runtime/this-firefox` in Firefox.
 3. Remove the previous temporary Vault Cleaner extension, if installed.
 4. Click **Load Temporary Add-on** and select `manifest.json` in the extracted folder.
-5. Check version **0.3.0** in Firefox's extension details, then reload **DIM and light.gg** to replace their previous scripts. The panel itself does not show a version badge.
+5. Check version **0.3.1** in Firefox's extension details, then reload **DIM and light.gg** to replace their previous scripts. The panel itself does not show a version badge.
 6. Open DIM and click **Vault Cleaner** in the bottom-right corner.
 
 Temporary Firefox extensions must be loaded again after restarting Firefox. No Aegis extension is required. This package does not bundle Aegis.
@@ -65,15 +65,21 @@ Armor **Manual transfer** explicitly bypasses duplicate, set and cleanup protect
 
 ## Weapon duplicates
 
-Open **Weapons → Duplicates**, or choose **Duplicate cleanup** in Transfer mode. The section starts with **all maximum ranks**, including S and A, independently of the C/D/F filters used for Cleanup by maximum. Rank buttons count verified vault duplicates only. Each row has **Compare**, showing current and confirmed maximum rank on both copies, Power, masterwork investment, every available perk option by socket and the exact retained ID. Search includes unselected perk options.
+Open **Weapons → Duplicates**, or choose **Duplicate cleanup** in Transfer mode. The section starts with **all maximum ranks**, including S and A, independently of the C/D/F filters used for Cleanup by maximum. Rank buttons count eligible vault duplicates only.
 
-An eligible duplicate must have a retained copy of the **same item definition**, slot, tier, damage element, adept/holofoil variant, base stats, masterwork type and functional mod/socket access. The retained copy must cover **every available perk in every corresponding column**, have an equal or higher fresh confirmed maximum, no lower Power and at least as much existing masterwork investment. All perk hashes are compared exactly: enhanced and normal perks are not silently treated as equivalent. A higher rank or identical weapon name alone is insufficient; different PvE/PvP rolls and masterwork types remain separate.
+Copies are grouped by their **exact weapon definition and slot**. Different definitions with the same name are separate. The keeper is chosen by:
 
-DIM's full perk pool is not used as the options on a copy. Randomized sockets require instance-level available plugs; actual selected plugs are preserved when DIM is only previewing a different selection. Missing or ambiguous perk/masterwork metadata and unconfirmed, contradictory or expired maxima do not enter duplicate cleanup. Open **All** in Duplicate cleanup mode to see **Keep**, **Review** and **Protected** reasons. Locks, favorite/keep/archive tags, loadouts, exotic weapons, crafted/enhanced weapons and Deepsight remain protected. A verified character-held copy may serve as a retained replacement.
+1. Highest fresh confirmed **maximum rank**, using the full order **S+ > S > S− > A+ > A > A− > B+ > B > B− > C+ > C > C− > D+ > D > D− > F+ > F > F−**.
+2. Highest confirmed **maximum Overall percentage**, only within the same exact rank. An A+ outranks an A regardless of their percentages.
+3. **Your choice** when top copies have equal rank and Overall, or the percentages needed to compare them are missing. Open **Ties**, or click **Choose keeper** on a tied row. Select the exact copy to retain. Eligible remaining copies then enter duplicate cleanup. The choice is saved locally and ignored if the chosen copy disappears or a better confirmed copy is found.
 
-Identical copies retain one deterministic anchor. A copy classified as Duplicate never becomes another duplicate's retained reference in the same analysis. **Prepare batch** freezes the retained instance for every candidate, excludes those retained IDs from the batch and checks their perk coverage, Power, masterwork and maximum again immediately before each native STORE. If a retained instance disappears, its options change or a required maximum expires, transfer stops. Both batch sizing options and all capacity checks apply.
+Different perks, masterworks, Power, tier or stat distributions do not keep a lower-ranked copy out of this weapon cleanup. Optional perk metadata is used for search and comparison, not eligibility. Locked, favorite/keep/archive, loadout, equipped, exotic, crafted/enhanced and Deepsight copies remain protected. A verified character-held copy may be the keeper; only transferable vault copies enter the batch. Unconfirmed, expired or contradictory maxima stay out of duplicate cleanup.
 
-Selecting **Candidates** returns to Cleanup by maximum and restores its rank filters. Changing transfer mode clears the selection. Duplicate cleanup does not change perks or dismantle items; transfer the reviewed copies, then dismantle them in Destiny 2.
+Each candidate has **Compare**, showing current and maximum ranks, maximum Overall, optional perk/masterwork details and the exact retained ID. Missing Overall is shown as **Not captured** and never inferred from individual perks, Trait Combo or bars. Sync while viewing **Best Available** to capture the percentage for the maximum. Current and maximum Overall are stored separately, bound to their respective exact grades, and expire independently after 48 hours. A visible possible-rank arrow can confirm a maximum but does not confirm its Overall percentage.
+
+**Select visible** adds all currently eligible visible copies to the selection; clicking it again keeps them selected. The header checkbox can clear the visible selection. Tied contenders stay unselected until you choose their keeper. The list shows visible, selected and selectable counts, plus groups needing a choice. With no selectable copies, the select button is disabled.
+
+**Prepare batch** freezes each retained instance and your tie decisions, excludes all retained IDs from the batch and rechecks their identity, fresh maximum and any required Overall immediately before each native STORE. A disappearing keeper, changed weapon identity or expired required score stops the transfer. Both batch sizing options and capacity checks apply. Selecting **Candidates** returns to Cleanup by maximum and restores its rank filters. Changing transfer mode clears the selection. Transfer reviewed copies, then dismantle them yourself in Destiny 2.
 
 ## Transfer modes
 
@@ -81,7 +87,7 @@ Selecting **Candidates** returns to Cleanup by maximum and restores its rank fil
 
 Choose popularity ranks, select candidate vault weapons and click **Prepare batch**. Review the exact copies before sending them to your destination character. Dismantle them yourself in Destiny 2.
 
-Cleanup protects locked, equipped, favorite, keep/archive, loadout, crafted, exotic, Deepsight, non-transferable, postmaster and non-vault copies, as well as weapons without a confirmed maximum. The views are **Candidates**, **Duplicates**, **Protected**, **No maximum** and **All**; Duplicates switches to the separate mode described above. Rank buttons count only cleanup-ready vault weapons, so a protected or character-held copy does not inflate a cleanup rank. These counts cover every rank regardless of which rank filters you have selected. In Manual transfer they count transferable vault weapons with confirmed maxima, including cleanup-protected copies.
+Cleanup protects locked, equipped, favorite, keep/archive, loadout, crafted, exotic, Deepsight, non-transferable, postmaster and non-vault copies, as well as weapons without a confirmed maximum. The views are **Candidates**, **Duplicates**, **Ties**, **Protected**, **No maximum** and **All**; Duplicates switches to the separate mode described above. Rank buttons count only cleanup-ready vault weapons, so a protected or character-held copy does not inflate a cleanup rank. These counts cover every rank regardless of which rank filters you have selected. In Manual transfer they count transferable vault weapons with confirmed maxima, including cleanup-protected copies.
 
 ### Manual transfer
 
@@ -113,11 +119,11 @@ Diagnostics contain counters and limited marker/attribute samples, with no compl
 
 ## Offline demo
 
-Open `Vault-Cleaner-demo.html` from the ZIP. It contains sample weapons and armor and simulates transfers without connecting to an account. Try Weapons → Duplicates: sample S/A copies share a locked retained anchor, while a Stability-masterwork copy stays in Keep. Also try the Armor tab, sets, archetype filters, Compare, transfer modes, sizing options and review.
+Open `Vault-Cleaner-demo.html` from the ZIP. It contains sample weapons and armor and simulates transfers without connecting to an account. Try Weapons → Duplicates: sample S/A copies retain the S with the highest Overall, including a lower-scoring Stability-masterwork copy in cleanup. Two equal A/82% copies require your keeper choice. Also try the Armor tab, sets, archetype filters, Compare, transfer modes, sizing options and review.
 
 ## Development checks
 
-Run `node --test tests/core.test.cjs tests/armor.test.cjs tests/weapon-duplicates.test.cjs`. Browser fixtures require Playwright and a compatible Chromium binary; the included browser tests use `@sparticuz/chromium`. `tests/armor-browser.test.cjs` covers Armor UI and DIM-shaped armor metadata and native actions. `tests/weapon-duplicates-browser.test.cjs` covers weapon duplicate UI, instance-level socket normalization, loot-pool exclusion, DIM overrides, frozen retained references, changed options, expiry and exact native actions.
+Run `node --test tests/core.test.cjs tests/armor.test.cjs tests/weapon-duplicates.test.cjs`. Browser fixtures require Playwright and a compatible Chromium binary; the included browser tests use `@sparticuz/chromium`. `tests/armor-browser.test.cjs` covers Armor UI and DIM-shaped armor metadata and native actions. `tests/weapon-duplicates-browser.test.cjs` covers weapon duplicate UI, instance-level socket normalization, loot-pool exclusion, DIM overrides, rank-only comparisons, Overall, manual ties, selection persistence, frozen retained references, changed identity, expiry and exact native actions. `tests/overall.test.cjs` covers grade-bound score storage, independent expiry and bounded DOM capture of labelled percentages, including split labels, decimal values, ambiguity and current/maximum separation.
 
 Armor checks cover stable retained references, matching features, stat-wise dominance, distinct archetypes/tertiary stats/tuning/tier, incomplete metadata, legacy armor, setless and untiered exotic duplicates, distinct exotic class-item perks, exotic/loadout/lock protections, Power and masterwork investment, full/incomplete set coverage, class restrictions, 45 per-slot/total sizing, reserves, explicit manual selection, normalized DIM sockets and stats, missing-replacement blocking, exact STORE without EQUIP and confirmed capacity updates.
 

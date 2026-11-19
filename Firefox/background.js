@@ -19,8 +19,19 @@ browser.runtime.onMessage.addListener((msg, sender) => {
           const merged = {grade,at:now,source:'dom',basis:record.basis === 'best' ? 'best' : 'displayed'};
           for (const role of ['current','best']) {
             const key = role+'Grade', time = role+'At';
-            if (valid(record[key])) {merged[key]=record[key];merged[time]=now;}
-            else if (valid(previous[key]) && fresh(previous[time] ?? previous.at)) {merged[key]=previous[key];merged[time]=previous[time] ?? previous.at;}
+            const score = role+'Overall', scoreTime = score+'At', scoreGrade = score+'Grade';
+            if (valid(record[key])) {
+              merged[key]=record[key];merged[time]=now;
+              if (typeof record[score] === 'number' && Number.isFinite(record[score]) && record[score] >= 0 && record[score] <= 100) {
+                merged[score]=record[score];merged[scoreTime]=now;merged[scoreGrade]=record[key];
+              }
+            } else if (valid(previous[key]) && fresh(previous[time] ?? previous.at)) {
+              merged[key]=previous[key];merged[time]=previous[time] ?? previous.at;
+              if (previous[scoreGrade] === previous[key] && fresh(previous[scoreTime]) && typeof previous[score] === 'number' &&
+                  Number.isFinite(previous[score]) && previous[score] >= 0 && previous[score] <= 100) {
+                merged[score]=previous[score];merged[scoreTime]=previous[scoreTime];merged[scoreGrade]=previous[scoreGrade];
+              }
+            }
           }
           grades[id] = merged;
           count++;

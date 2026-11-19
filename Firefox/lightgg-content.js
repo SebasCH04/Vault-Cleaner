@@ -83,6 +83,36 @@
     }
     return null;
   }
+  function readOverall(node) {
+    if (node.matches('script,style,input,textarea')) return null;
+    for (const [attr,role] of [['data-best-overall','best'],['data-max-overall','best'],['data-current-overall','current'],
+      ['data-overall',captureBasis === 'best' ? 'best' : 'current'],['data-overall-score',captureBasis === 'best' ? 'best' : 'current']]) {
+      const raw = node.getAttribute(attr);
+      if (raw === null) continue;
+      const overall = C.normalizeOverall(raw);
+      if (overall !== null) return {overall,role,priority:4,generic:!/(?:best|max|current)-overall/.test(attr)};
+    }
+    if (!node.getClientRects().length) return null;
+    const labels = ['title','aria-label','data-original-title','data-tooltip'].map(a=>(node.getAttribute(a) || '').slice(0,256));
+    const direct = Array.from(node.childNodes).slice(0,4).filter(n=>n.nodeType === Node.TEXT_NODE).map(n=>n.nodeValue).join(' ').slice(0,256);
+    if (/\boverall\b/i.test(direct)) labels.push(shortText(node));
+    else if (node.matches('.overall, .overall-score, [data-popularity-overall]')) labels.push('Overall '+shortText(node));
+    else if (node.children.length <= 8 && Array.from(node.children).some(child=>child.getClientRects().length && /^overall(?:\s+(?:popularity|score))?\s*[:=]?$/i.test(shortText(child)))) labels.push(shortText(node));
+    for (const label of labels) {
+      // Only the explicitly labelled Overall percentage, never individual
+      // perk popularity, stars, trait-combo scores or unrelated bar widths.
+      const matches = [...label.matchAll(/\boverall(?:\s+(?:popularity|score))?\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*%/gi)];
+      if (matches.length !== 1) continue;
+      const match = matches[0];
+      const overall = match ? C.normalizeOverall(match[1]) : null;
+      if (overall === null) continue;
+      const explicitBest = /best available|maximum|highest|máxim/i.test(label), explicitCurrent = /current|equipped|actual|equipad/i.test(label);
+      if (explicitBest && explicitCurrent) continue;
+      const role = explicitBest ? 'best' : explicitCurrent ? 'current' : captureBasis === 'best' ? 'best' : 'current';
+      return {overall,role,priority:2,generic:!explicitBest && !explicitCurrent};
+    }
+    return null;
+  }
   function description(node) {
     return { tag: node.tagName, classes: (node.getAttribute('class') || '').slice(0, 180), idAttribute: (node.id || '').replace(/\d{18,20}/g, id => '…' + id.slice(-8)).slice(0, 100), instanceAttributes: Array.from(node.attributes || []).filter(attr => identityAttribute(attr) && /\d{18,20}/.test(attr.value)).map(attr => attr.name).slice(0, 10), ignoredAssetAttributes: assetIdentifiersAt(node).slice(0,10) };
   }
@@ -122,7 +152,8 @@
     for (let container = node, depth = 0; container && depth < MAX_ANCESTORS; container = container.parentElement, depth++) {
       if (container === document.body || container === document.documentElement || bar.contains(container)) break;
       const ids = new Set();
-      const ranks = {current:{priority:0,values:new Set()},best:{priority:0,values:new Set()}};
+      const ranks = {current:{priority:0,values:new Set(),displayed:new Set()},best:{priority:0,values:new Set(),displayed:new Set()}};
+      const scores = {current:{priority:0,values:new Set(),generic:false},best:{priority:0,values:new Set(),generic:false}};
       let visited = 0;
       const tree = document.createTreeWalker(container, NodeFilter.SHOW_ELEMENT);
       let current = container;
@@ -132,8 +163,15 @@
         for (const marker of [readMarker(current),possibleMaximum(current)]) {
           if (!marker) continue;
           const rank = ranks[marker.role];
+          if (marker.kind !== 'possible-rank') rank.displayed.add(marker.grade);
           if (marker.priority > rank.priority) { rank.priority = marker.priority; rank.values.clear(); }
           if (marker.priority === rank.priority) rank.values.add(marker.grade);
+        }
+        const overall = readOverall(current);
+        if (overall) {
+          const score = scores[overall.role];
+          if (overall.priority > score.priority) {score.priority = overall.priority;score.values.clear();score.generic=false;}
+          if (overall.priority === score.priority) {score.values.add(overall.overall);score.generic ||= overall.generic;}
         }
         visited++; yield null;
         current = tree.nextNode();
@@ -146,6 +184,8 @@
         const record = {grade:bestGrade || currentGrade,basis:bestGrade ? 'best' : 'displayed'};
         if (currentGrade) record.currentGrade = currentGrade;
         if (bestGrade) record.bestGrade = bestGrade;
+        for (const role of ['current','best']) if (record[role+'Grade'] && scores[role].values.size === 1 &&
+          (!scores[role].generic || ranks[role].displayed.size === 1 && ranks[role].displayed.has(record[role+'Grade']))) record[role+'Overall'] = [...scores[role].values][0];
         candidate = {container,record};
       }
     }
@@ -225,7 +265,7 @@
   }
   function observe() {
     if (!observer || stopped) return;
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: [...new Set(['src','title','href','id','data-id','data-instance-id','data-instanceid','data-item-instance-id','data-iteminstanceid','data-roll-grade','data-roll-quality','data-grade','data-current-grade','data-best-grade','data-max-grade','aria-label','alt','data-original-title','data-tooltip', ...identityAttributes])] });
+    observer.observe(document.body, { childList: true, subtree: true, characterData:true, attributes: true, attributeFilter: [...new Set(['src','title','href','id','data-id','data-instance-id','data-instanceid','data-item-instance-id','data-iteminstanceid','data-roll-grade','data-roll-quality','data-grade','data-current-grade','data-best-grade','data-max-grade','data-best-overall','data-max-overall','data-current-overall','data-overall','data-overall-score','aria-label','alt','data-original-title','data-tooltip', ...identityAttributes])] });
   }
   function start() {
     stopped = false; session++; seen.clear(); maximumIds.clear(); stats.completed = false;
@@ -254,7 +294,7 @@
     }
   }
   function diagnostic() {
-    const report = { version: '0.3.0', captureBasis, confirmedMaxima:maximumIds.size, page: location.pathname, state: stopped ? 'stopped' : scanning ? 'scanning' : 'idle', capturedThisSession: seen.size, saved: count, counters: stats, samples, limits: { maxCardNodes: MAX_CARD_NODES, maxAncestors: MAX_ANCESTORS, sliceMs: SLICE_MS } };
+    const report = { version: '0.3.1', captureBasis, confirmedMaxima:maximumIds.size, page: location.pathname, state: stopped ? 'stopped' : scanning ? 'scanning' : 'idle', capturedThisSession: seen.size, saved: count, counters: stats, samples, limits: { maxCardNodes: MAX_CARD_NODES, maxAncestors: MAX_ANCESTORS, sliceMs: SLICE_MS } };
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'Vault-Cleaner-diagnostics.json';
     bar.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);

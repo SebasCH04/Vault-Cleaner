@@ -24,7 +24,7 @@
 <section id="armor-overview" class="hidden"><details class="armor-set-directory" ${standalone ? 'open' : ''}><summary>Your armor sets <small>Vault + characters</small></summary><p class="muted armor-policy">Keep distinct stat rolls and tuning options. Legendary and exotic copies enter duplicate cleanup only with an equivalent or better replacement. Set counts show owned slots, not currently equipped bonuses.</p><div id="armor-sets"></div></details><div class="safeguards"><span>Sets and unique rolls protected</span><span>Locks, favorites and loadouts</span></div></section>
 </aside><main class="right"><div id="status" class="status">Connecting to inventory…</div>
 <div class="mode-picker"><label class="field">Transfer mode<select id="transfer-mode"><option value="clean">Cleanup by maximum</option><option value="duplicates">Duplicate cleanup</option><option value="manual">Manual transfer</option></select></label><p class="muted" id="mode-hint"></p></div>
-<div class="tabs" id="tabs"><button class="active" data-view="candidates">Candidates</button><button data-view="duplicates">Duplicates</button><button data-view="protected">Protected</button><button data-view="ungraded">No maximum</button><button data-view="all">All</button></div>
+<div class="tabs" id="tabs"><button class="active" data-view="candidates">Candidates</button><button data-view="duplicates">Duplicates</button><button data-view="ties">Ties</button><button data-view="protected">Protected</button><button data-view="ungraded">No maximum</button><button data-view="all">All</button></div>
 <div class="armor-filters hidden" id="armor-filters"><label class="field">Class<select id="armor-class"><option value="">All classes</option><option value="0">Titan</option><option value="1">Hunter</option><option value="2">Warlock</option></select></label><label class="field">Slot<select id="armor-slot"><option value="">All slots</option></select></label><label class="field">Set<select id="armor-set"><option value="">All sets</option></select></label><label class="field">Archetype<select id="armor-archetype"><option value="">All archetypes</option></select></label><label class="field">Tier<select id="armor-tier"><option value="">All tiers</option><option value="5">Tier 5</option><option value="4">Tier 4</option><option value="3">Tier 3</option><option value="2">Tier 2</option><option value="1">Tier 1</option><option value="0">Untiered / legacy</option></select></label></div>
 <div class="toolbar"><input class="search" id="query" placeholder="Search weapons or perks…" aria-label="Search weapons or perks"><button id="select-visible">Select visible</button></div><p class="list-count" id="list-count">Waiting for inventory.</p>
 <div class="table-wrap"><table><thead><tr><th style="width:28px"><input id="all-check" type="checkbox" aria-label="Select visible weapons"></th><th id="item-heading">Weapon / perks</th><th id="value-heading">Maximum</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table></div>
@@ -41,12 +41,13 @@
     root.append(shell);
     const $ = id => root.getElementById(id);
     let snap = { items: [], characters: [], canTransfer: false }, grades = {}, selected = new Set(), categories = new Set(['C','D','F']), view = 'candidates', query = '', busy = false, loading = false, currentPlan = null, mode = 'clean', batchMode = 'slot', pendingSnapshot = null, kind = 'weapons';
+    let keeperChoices = {};
     const duplicateCategories = new Set(['S','A','B','C','D','F']);
-    let weaponMemoItems = null, weaponMemoGrades = null, weaponMemo = null, weaponMemoAt = 0;
+    let weaponMemoItems = null, weaponMemoGrades = null, weaponMemo = null, weaponMemoAt = 0, weaponMemoChoices = null;
     function weaponInfo() {
       const now = Date.now();
-      if (weaponMemoItems !== snap.items || weaponMemoGrades !== grades || now-weaponMemoAt >= 1000) {
-        weaponMemoItems = snap.items; weaponMemoGrades = grades; weaponMemoAt = now; weaponMemo = C.weaponAnalysis(snap.items,grades,now);
+      if (weaponMemoItems !== snap.items || weaponMemoGrades !== grades || weaponMemoChoices !== keeperChoices || now-weaponMemoAt >= 1000) {
+        weaponMemoItems = snap.items; weaponMemoGrades = grades; weaponMemoAt = now; weaponMemoChoices = keeperChoices; weaponMemo = C.weaponAnalysis(snap.items,grades,now,keeperChoices);
       }
       return weaponMemo;
     }
@@ -73,7 +74,10 @@
         const grade = C.gradeFor(item, grades);
         const candidate = C.eligible(item, grades, [...categories]);
         if (view === 'candidates' && !candidate) return false;
-        if (view === 'duplicates' && !C.canSelectItem(item,grades,[...rankFilters()],'duplicates','weapons',weaponInfo())) return false;
+        if (view === 'duplicates' || view === 'ties') {
+          const record = weaponInfo().records[item.id];
+          if (!rankFilters().has(C.gradeDetails(item,grades)?.best?.[0]) || (view === 'ties' ? !record?.needsChoice : record?.state !== 'duplicate' && !record?.needsChoice)) return false;
+        }
         if (view === 'protected' && (mode === 'duplicates' ? weaponInfo().records[item.id]?.state !== 'protected' : !grade || candidate || !C.reasons(item, grades).length)) return false;
         if (view === 'ungraded' && C.gradeDetails(item, grades)?.best) return false;
         return !query || [item.name, ...(item.perks || []), ...(item.weaponData?.columns || []).flatMap(c=>c.options.map(p=>p.name))].join(' ').toLowerCase().includes(query.toLowerCase());
@@ -98,8 +102,8 @@
       $('item-heading').textContent = armor ? 'Armor / set' : 'Weapon / perks';
       $('value-heading').textContent = armor ? 'Base stats' : 'Maximum';
       $('all-check').setAttribute('aria-label',armor ? 'Select visible armor' : 'Select visible weapons');
-      $('cleanup-hint').textContent = armor ? 'Duplicate cleanup preserves a verified replacement for every selected copy. Unique rolls, tuning options and incomplete data are kept for review.' : duplicates ? 'Different rolls are kept. Duplicates need a verified retained copy covering every perk option, masterwork type and confirmed maximum. Missing data stays in Review in All.' : 'Cleanup protects weapons with an unknown maximum. Manual transfer lets you choose any rank or an ungraded weapon.';
-      $('intro-copy').innerHTML = armor ? 'Compare your armor. Keep your sets.<br>Transfer duplicates in batches.' : duplicates ? 'Compare copies. Keep your rolls.<br>Transfer verified duplicates.' : 'Choose ranks. Review your weapons.<br>Transfer them in batches.';
+      $('cleanup-hint').textContent = armor ? 'Duplicate cleanup preserves a verified replacement for every selected copy. Unique rolls, tuning options and incomplete data are kept for review.' : duplicates ? 'Keeps the highest confirmed maximum per weapon, then the highest confirmed Overall. Choose a keeper for ties; locked, favorite and loadout copies stay protected.' : 'Cleanup protects weapons with an unknown maximum. Manual transfer lets you choose any rank or an ungraded weapon.';
+      $('intro-copy').innerHTML = armor ? 'Compare your armor. Keep your sets.<br>Transfer duplicates in batches.' : duplicates ? 'Keep the best copy of each weapon.<br>Transfer lower-ranked duplicates.' : 'Choose ranks. Review your weapons.<br>Transfer them in batches.';
       $('inventory-picker').querySelectorAll('button').forEach(btn=>{btn.classList.toggle('active',btn.dataset.kind === kind);btn.setAttribute('aria-pressed',String(btn.dataset.kind === kind));btn.disabled = busy;});
       if (armor) renderArmorSets();
       const ranked = rankItems();
@@ -107,9 +111,9 @@
         const count = ranked.filter(i => C.gradeDetails(i, grades)?.best?.[0] === grade).length;
         return `<button class="grade-button ${rankFilters().has(grade) ? 'active' : ''}" data-grade="${grade}" aria-pressed="${rankFilters().has(grade)}" ${busy || mode === 'manual' ? 'disabled' : ''}><b>${grade}</b><span>${count} ${count === 1 ? 'weapon' : 'weapons'}</span></button>`;
       }).join('');
-      $('rank-explanation').textContent = duplicates ? 'Both copies need a recent confirmed maximum. Even S duplicates can be reviewed when every perk option is retained.' : 'Uses the highest rank possible with this copy’s available perks. A C that can reach S is classified as S.';
+      $('rank-explanation').textContent = duplicates ? 'Ranks compare S+ > S > S− > A+ and downward. The confirmed maximum Overall breaks ties within the same exact rank.' : 'Uses the highest rank possible with this copy’s available perks. A C that can reach S is classified as S.';
       $('rank-scope').textContent = duplicates ? 'Counts show verified vault duplicates by maximum rank.' : mode === 'manual' ? 'Counts show transferable vault weapons with confirmed maxima.' : 'Counts show cleanup-ready vault weapons. Protected copies are excluded.';
-      $('mode-hint').textContent = armor ? (mode === 'manual' ? 'You choose what to transfer. Keep, Review and Protected pieces can be selected; no duplicate or set protection applies.' : 'Verified legendary and exotic vault duplicates only. Distinct rolls, perks, tuning, sets, locks and loadouts stay protected.') : mode === 'manual' ? 'Choose any transferable vault weapon, including S, ungraded, locked or cleanup-protected copies. You decide what to dismantle in-game.' : duplicates ? 'Every candidate has a retained copy with all its perk options, the same masterwork type and an equal or higher confirmed maximum. Locks, favorites and loadouts stay protected.' : 'Candidates use each copy’s maximum rank and keep cleanup protections.';
+      $('mode-hint').textContent = armor ? (mode === 'manual' ? 'You choose what to transfer. Keep, Review and Protected pieces can be selected; no duplicate or set protection applies.' : 'Verified legendary and exotic vault duplicates only. Distinct rolls, perks, tuning, sets, locks and loadouts stay protected.') : mode === 'manual' ? 'Choose any transferable vault weapon, including S, ungraded, locked or cleanup-protected copies. You decide what to dismantle in-game.' : duplicates ? 'Keeps the best maximum rank per weapon, then Overall. Lower-ranked copies can be removed regardless of perks or masterwork. You choose the keeper when scores tie or Overall is missing.' : 'Candidates use each copy’s maximum rank and keep cleanup protections.';
       $('limit-label').textContent = batchMode === 'total' ? 'Max / batch' : 'Max / slot';
       $('sizing-hint').textContent = batchMode === 'total' ? 'One limit across all selected slots.' : armor ? 'Separate limit for Helmet, Arms, Chest, Legs and Class Item.' : 'Separate limit for Kinetic, Energy and Power.';
       const visible = rows();
@@ -118,21 +122,23 @@
         if (armor) return armorRow(item);
         const details = C.gradeDetails(item, grades), grade = details?.best, ok = selectable(item);
         const protection = mode === 'manual' ? C.transferReasons(item) : C.reasons(item, grades);
-        const note = `<span class="badge" data-grade="${esc(grade?.[0] || '')}">${esc(grade || '—')}</span><small class="rank-detail">${details?.current ? 'Current ' + esc(details.current) : grade ? 'Best Available' : 'Unconfirmed'}</small>`;
+        const note = `<span class="badge" data-grade="${esc(grade?.[0] || '')}">${esc(grade || '—')}</span><small class="rank-detail">${details?.current ? 'Current ' + esc(details.current) : grade ? 'Best Available' : 'Unconfirmed'}</small>${duplicates ? '<small class="rank-detail">'+(details?.bestOverall !== null && details?.bestOverall !== undefined ? 'Overall '+esc(details.bestOverall)+'%' : 'Overall not captured')+'</small>' : ''}`;
         const perks = (item.perks || []).join(' · ');
         let image = `<span class="weapon-icon">${icon('weapon')}</span>`;
         if (typeof item.icon === 'string' && item.icon.startsWith('/common/')) image = `<img class="weapon-icon" loading="lazy" alt="" src="https://www.bungie.net${esc(item.icon)}">`;
         const record = duplicates ? weaponInfo().records[item.id] : null;
-        const recommendation = record ? `<span class="armor-state" data-state="${record.state}">${({duplicate:'Duplicate',keep:'Keep',review:'Review',protected:'Protected'})[record.state]}</span><span class="reason">${esc(record.reason)}</span>${record.keeperId ? '<button class="compare-button" data-compare="'+esc(item.id)+'" '+(busy ? 'disabled' : '')+'>Compare</button>' : ''}` : ok ? `<span class="tag">${mode === 'manual' ? 'Transfer only' + (item.locked ? ' · locked' : '') : 'Ready to review'}</span>` : `<span class="reason" title="${esc(protection.join(' · '))}">${esc(protection[0] || (grade ? 'Rank ' + grade + ': another category' : 'Ungraded'))}</span>`;
+        const recommendation = record ? `<span class="armor-state" data-state="${record.state}">${({duplicate:'Duplicate',keep:'Keep',review:'Review',protected:'Protected',tie:'Tie'})[record.state]}</span><span class="reason">${esc(record.reason)}</span>${record.needsChoice ? '<button class="compare-button" data-choose="'+esc(record.groupKey)+'" '+(busy ? 'disabled' : '')+'>Choose keeper</button>' : ''}${record.keeperId ? '<button class="compare-button" data-compare="'+esc(item.id)+'" '+(busy ? 'disabled' : '')+'>Compare</button>' : ''}` : ok ? `<span class="tag">${mode === 'manual' ? 'Transfer only' + (item.locked ? ' · locked' : '') : 'Ready to review'}</span>` : `<span class="reason" title="${esc(protection.join(' · '))}">${esc(protection[0] || (grade ? 'Rank ' + grade + ': another category' : 'Ungraded'))}</span>`;
         return `<tr class="${selected.has(item.id) ? 'selected' : ''}"><td><input type="checkbox" data-id="${esc(item.id)}" aria-label="Select ${esc(item.name)}" ${selected.has(item.id) ? 'checked' : ''} ${!ok || busy ? 'disabled' : ''}></td><td><div class="weapon">${image}<div><b>${esc(item.name)}</b><small>${esc(item.type || item.bucketName)} · ${esc(item.owner === 'vault' ? 'Vault' : item.ownerName || 'Character')}</small>${perks ? `<small title="${esc(perks)}">${esc(perks.length > 76 ? perks.slice(0,73) + '…' : perks)}</small>` : ''}</div></div></td><td>${note}</td><td>${recommendation}</td></tr>`;
       }).join('') || `<tr><td colspan="4" class="empty"><strong>No ${armor ? 'armor' : 'weapons'} in this view.</strong>${armor ? 'Change your filters or open All to review your armor.' : duplicates ? 'Sync Best Available in light.gg, refresh DIM, or open All to inspect why copies are kept.' : 'Sync light.gg or change the selected ranks.'}</td></tr>`;
       const eligibleVisible = visible.filter(selectable);
+      if (duplicates) $('list-count').textContent += ' · '+eligibleVisible.length+' selectable · '+weaponInfo().groups.filter(g=>g.needsChoice).length+' groups need a keeper';
       $('all-check').checked = eligibleVisible.length > 0 && eligibleVisible.every(i => selected.has(i.id));
       $('all-check').disabled = busy || !eligibleVisible.length;
       $('selected-count').textContent = selected.size;
       for (const id of ['prepare','search-dim']) $(id).disabled = busy || loading || !selected.size || (id === 'prepare' && !snap.canTransfer);
       $('refresh').disabled = busy || loading;
       for (const id of ['target','limit','reserve','select-visible','sync','query','transfer-mode','batch-mode']) $(id).disabled = busy;
+      $('select-visible').disabled = busy || !eligibleVisible.length;
       for (const id of ['armor-class','armor-slot','armor-set','armor-archetype','armor-tier']) $(id).disabled = busy;
       $('tabs').querySelectorAll('button').forEach(btn => { btn.classList.toggle('active', btn.dataset.view === view); btn.disabled = busy; });
       const target = snap.characters.find(c => c.id === $('target').value);
@@ -140,7 +146,7 @@
       if (target) {
         const maxLimit = batchMode === 'total' ? (armor ? 45 : 27) : 9;
         const limit = Math.max(1,Math.min(maxLimit,Math.floor(Number($('limit').value) || 9)));
-        const plan = C.planBatch(snap.items, grades, [...selected], target, [...rankFilters()], limit, $('reserve').checked, mode, batchMode, kind);
+        const plan = C.planBatch(snap.items, grades, [...selected], target, [...rankFilters()], limit, $('reserve').checked, mode, batchMode, kind, keeperChoices);
         const slots = Object.keys(target.capacity || {}).filter(bucket=>inventory.some(i=>i.bucket === bucket)).sort((a,b)=>armor ? C.ARMOR_SLOTS.indexOf(a)-C.ARMOR_SLOTS.indexOf(b) : ['Kinetic','Energy','Power'].indexOf(bucketLabel(a))-['Kinetic','Energy','Power'].indexOf(bucketLabel(b))).map(bucket=>({bucket,free:C.freeSpaces(target,bucket,$('reserve').checked)}));
         $('capacity').textContent = `${plan.batch.length} ready this batch · ${batchMode === 'total' ? 'Total limit' : 'Limit per slot'} ${limit}`;
         if (selected.size && !plan.batch.length) $('capacity').textContent += snap.source === 'demo' ? ' · Choose a character with free space.' : ' · DIM will recheck space when you prepare.';
@@ -168,7 +174,7 @@
     function statsText(values) { return Array.isArray(values) ? values.map((v,index)=>`${C.STAT_NAMES[index].slice(0,1)} ${v ?? '—'}`).join(' · ') : 'Stats unavailable'; }
     function armorRow(item) {
       const a = item.armorData || {}, record = armorInfo().records[item.id] || {state:'review',reason:'Comparison data missing'}, ok = selectable(item);
-      const state = ({duplicate:'Duplicate',keep:'Keep',review:'Review',protected:'Protected'})[record.state];
+      const state = ({duplicate:'Duplicate',keep:'Keep',review:'Review',protected:'Protected',tie:'Tie'})[record.state];
       const name = item.exotic ? 'Exotic armor' : a.setName || 'Set unverified', details = `${a.className || 'Unknown class'} · ${bucketLabel(item.bucket)} · ${item.owner === 'vault' ? 'Vault' : item.ownerName || 'Character'}`;
       const baseTotal = a.base?.every(Number.isInteger) ? a.base.reduce((sum,v)=>sum+v,0) : '—';
       const image = typeof item.icon === 'string' && item.icon.startsWith('/common/') ? `<img class="weapon-icon" loading="lazy" alt="" src="https://www.bungie.net${esc(item.icon)}">` : `<span class="weapon-icon">${icon('shield')}</span>`;
@@ -183,14 +189,38 @@
       $('cancel-plan').onclick = ()=>{$('dialog').classList.add('hidden');busy = false;render();};
       $('cancel-plan').focus();
     }
+    function chooseWeaponKeeper(groupKey) {
+      const group = weaponInfo().groups.find(g=>g.key === groupKey);
+      if (!group || busy) return;
+      busy = true; render();
+      $('dialog').innerHTML = `<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="review-title"><p class="eyebrow">CHOOSE YOUR KEEPER</p><h2 id="review-title">${esc(group.name)}</h2><p>${group.bestOverall === null ? 'The top copies share a maximum rank, but their confirmed maximum Overall is missing. Choose the copy you want to keep.' : 'The top copies have the same maximum rank and Overall. You decide which one stays.'}</p><div class="keeper-options">${group.itemIds.map(id=> {
+        const item = snap.items.find(i=>i.id === id), d = C.gradeDetails(item,grades), eligible = group.contenderIds.includes(id);
+        return `<label class="keeper-option"><input type="radio" name="weapon-keeper" value="${esc(id)}" ${!eligible ? 'disabled' : ''}><span><b>${esc(item.name)} · ${esc(d.best)}${d.bestOverall !== null ? ' · Overall '+esc(d.bestOverall)+'%' : ' · Overall not captured'}</b><small>ID …${esc(id.slice(-8))} · ${esc(item.owner === 'vault' ? 'Vault' : item.ownerName || 'Character')} · ${esc(C.weaponProtection(item).join(' · ') || 'Unlocked')}${!eligible ? ' · Lower score' : ''}</small><small>${esc((item.perks || []).join(' · '))}</small></span></label>`;
+      }).join('')}</div><p>Lower-scoring copies can enter duplicate cleanup after your choice. Locks, favorites and loadouts remain protected.</p><div class="dialog-actions"><button id="cancel-plan">Back to review</button><button id="save-keeper" class="primary" disabled>Keep selected copy</button></div></section>`;
+      $('dialog').classList.remove('hidden');
+      $('dialog').onchange = ()=>{$('save-keeper').disabled = !root.querySelector('[name="weapon-keeper"]:checked');};
+      const close = ()=>{$('dialog').classList.add('hidden');$('dialog').onchange = null;busy = false;render();};
+      $('cancel-plan').onclick = close;
+      $('save-keeper').onclick = async()=> {
+        const id = root.querySelector('[name="weapon-keeper"]:checked')?.value;
+        const latest = weaponInfo().groups.find(g=>g.key === groupKey);
+        if (!latest?.contenderIds.includes(id)) {close();status('The best-ranked copies changed. Review the group again.','error');return;}
+        keeperChoices = {...keeperChoices,[groupKey]:id};
+        try {if (adapter.saveKeepers) await adapter.saveKeepers(keeperChoices);close();status('Keeper selected. Other eligible copies can now be selected for cleanup.');}
+        catch {close();status('Keeper selected for this session. The choice could not be saved.');}
+      };
+      $('cancel-plan').focus();
+    }
     function compareWeapon(id) {
       const item = snap.items.find(i=>i.id === id), record = weaponInfo().records[id];
       const keeper = snap.items.find(i=>i.id === record?.keeperId);
       if (!item || !keeper || busy) return;
       busy = true; render();
       const label = copy=>`ID …${esc(copy.id.slice(-8))} · ${esc(copy.owner === 'vault' ? 'Vault' : copy.ownerName || 'Character')}`;
-      const names = column=>column.options.map(p=>esc(p.name || p.hash)).join(' · ');
-      $('dialog').innerHTML = `<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="review-title"><p class="eyebrow">WEAPON COMPARISON</p><h2 id="review-title">Your retained replacement</h2><p>${esc(record.reason)}. Matching weapon definition, tier, frame, base stats, masterwork type and mod access.</p><div class="compare-copies"><div><b>Cleanup candidate</b><span>${esc(item.name)}</span><small>${label(item)}</small></div><div><b>Retained copy</b><span>${esc(keeper.name)}</span><small>${label(keeper)}</small></div></div><table class="compare-table"><thead><tr><th>Compare</th><th>Candidate</th><th>Retained</th></tr></thead><tbody><tr><td>Confirmed maximum</td><td>${esc(C.gradeDetails(item,grades)?.best || '—')}</td><td>${esc(C.gradeDetails(keeper,grades)?.best || '—')}</td></tr><tr><td>Current rank</td><td>${esc(C.gradeDetails(item,grades)?.current || '—')}</td><td>${esc(C.gradeDetails(keeper,grades)?.current || '—')}</td></tr><tr><td>Power</td><td>${item.power}</td><td>${keeper.power}</td></tr><tr><td>${esc(item.weaponData.masterworkName || 'Masterwork')} masterwork</td><td>${item.weaponData.masterwork}/10</td><td>${keeper.weaponData.masterwork}/10</td></tr>${item.weaponData.columns.map(c=>`<tr><td>${esc(c.name || 'Slot '+c.index)}</td><td>${names(c)}</td><td>${names(keeper.weaponData.columns.find(k=>k.index === c.index))}</td></tr>`).join('')}</tbody></table><p>These are the options rolled on each exact copy, including unselected perks. A higher popularity rank alone cannot replace a different roll. Other perks, masterwork types and special variants are kept separately.</p><p>The retained copy stays outside this duplicate cleanup batch. Apply your preferred perks manually in light.gg.</p><div class="dialog-actions"><button id="cancel-plan">Back to review</button></div></section>`;
+      const d = C.gradeDetails(item,grades), k = C.gradeDetails(keeper,grades);
+      const names = column=>column?.options?.map(p=>esc(p.name || p.hash)).join(' · ') || '—';
+      const columns = [...new Map([...(item.weaponData?.columns || []),...(keeper.weaponData?.columns || [])].map(c=>[c.index,c])).values()];
+      $('dialog').innerHTML = `<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="review-title"><p class="eyebrow">WEAPON COMPARISON</p><h2 id="review-title">Your retained best copy</h2><p>${esc(record.reason)}. This cleanup compares the same weapon definition by maximum popularity rank, then confirmed maximum Overall.</p><div class="compare-copies"><div><b>Cleanup candidate</b><span>${esc(item.name)}</span><small>${label(item)}</small></div><div><b>Retained copy</b><span>${esc(keeper.name)}</span><small>${label(keeper)}</small></div></div><table class="compare-table"><thead><tr><th>Compare</th><th>Candidate</th><th>Retained</th></tr></thead><tbody><tr><td>Confirmed maximum</td><td>${esc(d?.best || '—')}</td><td>${esc(k?.best || '—')}</td></tr><tr><td>Maximum Overall</td><td>${d?.bestOverall != null ? esc(d.bestOverall)+'%' : 'Not captured'}</td><td>${k?.bestOverall != null ? esc(k.bestOverall)+'%' : 'Not captured'}</td></tr><tr><td>Current rank</td><td>${esc(d?.current || '—')}</td><td>${esc(k?.current || '—')}</td></tr><tr><td>Power</td><td>${item.power ?? '—'}</td><td>${keeper.power ?? '—'}</td></tr><tr><td>Masterwork</td><td>${esc(item.weaponData?.masterworkName || '—')} · ${item.weaponData?.masterwork ?? '—'}/10</td><td>${esc(keeper.weaponData?.masterworkName || '—')} · ${keeper.weaponData?.masterwork ?? '—'}/10</td></tr>${columns.map(c=>`<tr><td>${esc(c.name || 'Slot '+c.index)}</td><td>${names(item.weaponData?.columns?.find(x=>x.index === c.index))}</td><td>${names(keeper.weaponData?.columns?.find(x=>x.index === c.index))}</td></tr>`).join('')}</tbody></table><p>Perks, masterwork, tier and Power do not prevent a lower-ranked copy from entering this cleanup. Exact ties stay for your decision. The retained copy stays outside this batch.</p><div class="dialog-actions"><button id="cancel-plan">Back to review</button></div></section>`;
       $('dialog').classList.remove('hidden');
       $('cancel-plan').onclick = ()=>{$('dialog').classList.add('hidden');busy = false;render();};
       $('cancel-plan').focus();
@@ -222,7 +252,7 @@
       loading = true; render();
       try {
         if (fromGame) { lastNativeRefresh = Date.now(); if (!quiet) status('Refreshing inventory through DIM…'); }
-        [snap, grades] = await Promise.all([fromGame && adapter.refresh ? adapter.refresh() : adapter.snapshot(), adapter.grades()]);
+        [snap, grades, keeperChoices] = await Promise.all([fromGame && adapter.refresh ? adapter.refresh() : adapter.snapshot(), adapter.grades(), adapter.keepers ? adapter.keepers() : Promise.resolve(keeperChoices)]);
         populateTargets();
         if (!quiet) {
           if (snap.source === 'demo') status('INTERACTIVE DEMO · Sample inventory and ranks. Transfers are simulated and do not affect your account.', 'demo');
@@ -238,9 +268,9 @@
     async function prepare() {
       busy = true; render();
       try {
-        currentPlan = await adapter.prepare({ ids: [...selected], grades, categories: [...rankFilters()], targetId: $('target').value, limit: Number($('limit').value), reserve: $('reserve').checked, mode, batchMode, kind });
+        currentPlan = await adapter.prepare({ ids: [...selected], grades, categories: [...rankFilters()], targetId: $('target').value, limit: Number($('limit').value), reserve: $('reserve').checked, mode, batchMode, kind, keeperChoices });
         if (currentPlan.snapshot) applySnapshot(currentPlan.snapshot);
-        $('dialog').innerHTML = `<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="review-title"><p class="eyebrow">REVIEW THIS BATCH</p><h2 id="review-title">${currentPlan.batch.length} ${nouns(currentPlan.batch.length)} → ${esc(currentPlan.target.name)}</h2><p>${mode === 'manual' ? 'Manual selection bypasses cleanup recommendations and set protection. Locks and tags are retained.' : kind === 'armor' ? 'Only verified duplicates transfer. Their retained replacements and set coverage are preserved.' : mode === 'duplicates' ? 'Verified weapon duplicates only. Each retained copy stays outside this batch, with all perk choices and an equal or higher confirmed maximum.' : 'This batch uses confirmed maximum ranks and cleanup protections.'}</p><p>${currentPlan.batchMode === 'total' || batchMode === 'total' ? 'Total limit across all slots' : 'Limit per slot'} · ${esc(batchSummary(currentPlan.batch))}</p><ul class="review-list">${currentPlan.batch.map(reviewRow).join('')}</ul>${currentPlan.skipped?.length ? `<p>${currentPlan.skipped.length} selected copies were left out due to space, limits or state. You can review them in the next batch.</p>` : ''}<p>${snap.source === 'demo' ? 'This batch is a simulation.' : 'After transferring, dismantle in-game. You can stop the batch between items.'}</p><div class="dialog-actions"><button id="cancel-plan">Back to review</button><button id="confirm-plan" class="primary">${snap.source === 'demo' ? 'Simulate transfer' : 'Send batch'}</button></div></section>`;
+        $('dialog').innerHTML = `<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="review-title"><p class="eyebrow">REVIEW THIS BATCH</p><h2 id="review-title">${currentPlan.batch.length} ${nouns(currentPlan.batch.length)} → ${esc(currentPlan.target.name)}</h2><p>${mode === 'manual' ? 'Manual selection bypasses cleanup recommendations and set protection. Locks and tags are retained.' : kind === 'armor' ? 'Only verified duplicates transfer. Their retained replacements and set coverage are preserved.' : mode === 'duplicates' ? 'Lower-ranked weapon copies, ordered by confirmed maximum and Overall. Their retained best copies stay outside this batch. Exact ties require your keeper choice.' : 'This batch uses confirmed maximum ranks and cleanup protections.'}</p><p>${currentPlan.batchMode === 'total' || batchMode === 'total' ? 'Total limit across all slots' : 'Limit per slot'} · ${esc(batchSummary(currentPlan.batch))}</p><ul class="review-list">${currentPlan.batch.map(reviewRow).join('')}</ul>${currentPlan.skipped?.length ? `<p>${currentPlan.skipped.length} selected copies were left out due to space, limits or state. You can review them in the next batch.</p>` : ''}<p>${snap.source === 'demo' ? 'This batch is a simulation.' : 'After transferring, dismantle in-game. You can stop the batch between items.'}</p><div class="dialog-actions"><button id="cancel-plan">Back to review</button><button id="confirm-plan" class="primary">${snap.source === 'demo' ? 'Simulate transfer' : 'Send batch'}</button></div></section>`;
         $('dialog').classList.remove('hidden');
         $('cancel-plan').onclick = () => { $('dialog').classList.add('hidden'); currentPlan = null; busy = false; render(); };
         $('confirm-plan').onclick = transfer;
@@ -283,7 +313,7 @@
       if (!next || next === kind || busy) return;
       kind = next; mode = 'clean'; view = 'candidates'; selected.clear(); query = ''; $('query').value = '';
       $('transfer-mode').innerHTML = `<option value="clean">${kind === 'armor' ? 'Duplicate cleanup' : 'Cleanup by maximum'}</option>${kind === 'weapons' ? '<option value="duplicates">Duplicate cleanup</option>' : ''}<option value="manual">Manual transfer</option>`;
-      $('tabs').innerHTML = kind === 'armor' ? '<button data-view="candidates">Duplicates</button><button data-view="keep">Keep</button><button data-view="review">Review</button><button data-view="protected">Protected</button><button data-view="all">All</button>' : '<button data-view="candidates">Candidates</button><button data-view="duplicates">Duplicates</button><button data-view="protected">Protected</button><button data-view="ungraded">No maximum</button><button data-view="all">All</button>';
+      $('tabs').innerHTML = kind === 'armor' ? '<button data-view="candidates">Duplicates</button><button data-view="keep">Keep</button><button data-view="review">Review</button><button data-view="protected">Protected</button><button data-view="all">All</button>' : '<button data-view="candidates">Candidates</button><button data-view="duplicates">Duplicates</button><button data-view="ties">Ties</button><button data-view="protected">Protected</button><button data-view="ungraded">No maximum</button><button data-view="all">All</button>';
       const max = batchMode === 'total' ? (kind === 'armor' ? 45 : 27) : 9;
       $('limit').max = String(max); $('limit').value = String(Math.min(max,Number($('limit').value) || 9));
       status(snap.source === 'demo' ? 'INTERACTIVE DEMO · Sample armor and weapons. Transfers are simulated.' : kind === 'armor' ? 'Review verified duplicates. Distinct rolls, tuning options and sets are retained.' : 'Review weapons by their confirmed maximum popularity.');
@@ -301,16 +331,21 @@
     $('transfer-mode').onchange = ()=>{mode=$('transfer-mode').value;selected.clear();view=mode === 'manual' ? 'all' : mode === 'duplicates' ? 'duplicates' : 'candidates';render();};
     $('grades').onclick = event => { const btn = event.target.closest('[data-grade]'); if (!btn || busy || mode === 'manual') return; const grade = btn.dataset.grade; if (rankFilters().has(grade)) rankFilters().delete(grade); else rankFilters().add(grade); render(); };
     $('tabs').onclick = event => { const btn = event.target.closest('[data-view]'); if (!btn || busy) return; view = btn.dataset.view;
-      if (kind === 'weapons' && (view === 'duplicates' || view === 'candidates' && mode === 'duplicates')) {
-        const next = view === 'duplicates' ? 'duplicates' : 'clean';
+      if (kind === 'weapons' && (view === 'duplicates' || view === 'ties' || view === 'candidates' && mode === 'duplicates')) {
+        const next = view === 'duplicates' || view === 'ties' ? 'duplicates' : 'clean';
         if (mode !== next) selected.clear();
         mode = next; $('transfer-mode').value = mode;
       }
       render(); };
     $('rows').onchange = event => { const id = event.target.dataset.id; if (!id || busy) return; if (event.target.checked) selected.add(id); else selected.delete(id); render(); };
-    $('rows').onclick = event=> { const id = event.target.closest('[data-compare]')?.dataset.compare; if (id) kind === 'armor' ? compareArmor(id) : compareWeapon(id); };
-    function selectVisible() { if (busy) return; const eligible = rows().filter(selectable); const all = eligible.length && eligible.every(i => selected.has(i.id)); for (const item of eligible) all ? selected.delete(item.id) : selected.add(item.id); render(); }
-    $('select-visible').onclick = selectVisible; $('all-check').onchange = selectVisible;
+    $('rows').onclick = event=> { const groupKey = event.target.closest('[data-choose]')?.dataset.choose; if (groupKey) {chooseWeaponKeeper(groupKey);return;} const id = event.target.closest('[data-compare]')?.dataset.compare; if (id) kind === 'armor' ? compareArmor(id) : compareWeapon(id); };
+    function selectVisible(clear = false) {
+      if (busy) return;
+      const eligible = rows().filter(selectable);
+      for (const item of eligible) clear ? selected.delete(item.id) : selected.add(item.id);
+      render();
+    }
+    $('select-visible').onclick = ()=>selectVisible(); $('all-check').onchange = ()=>selectVisible(!$('all-check').checked);
     if ($('close')) $('close').onclick = () => { host.style.display = 'none'; };
     if (adapter.onGradesChanged) adapter.onGradesChanged(async () => { grades = await adapter.grades(); if (!busy) render(); });
     // DIM sees the shadow host as event.target, so its form-control shortcut

@@ -22,6 +22,8 @@
     snapshot: () => rpc('snapshot'),
     refresh: () => rpc('refresh'),
     grades: async () => (await browser.storage.local.get('vcGrades')).vcGrades || {},
+    keepers: async () => (await browser.storage.local.get('vcWeaponKeepers')).vcWeaponKeepers || {},
+    saveKeepers: async choices => browser.storage.local.set({vcWeaponKeepers:choices}),
     prepare: payload => rpc('prepare', payload), transfer: token => rpc('transfer', { token }),
     stop: () => rpc('stop'), search: ids => rpc('search', { ids }),
     sync: () => browser.runtime.sendMessage({ type: 'open-sync' }),

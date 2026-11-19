@@ -247,10 +247,10 @@
     if (!fresh.canTransfer || fresh.accountKey !== plan.accountKey) throw new Error('The DIM account or connection changed. Refresh inventory.');
     const item = fresh.items.find(i => i.id === itemId);
     if (item) verifyKeeper(fresh,item,plan);
-    const analysis = plan.kind === 'armor' ? C.armorAnalysis(fresh.items) : plan.mode === 'duplicates' ? C.weaponAnalysis(fresh.items,plan.grades) : null;
+    const analysis = plan.kind === 'armor' ? C.armorAnalysis(fresh.items) : plan.mode === 'duplicates' ? C.weaponAnalysis(fresh.items,plan.grades,Date.now(),plan.keeperChoices || {}) : null;
     if (!item || !C.canSelectItem(item, plan.grades, plan.categories, plan.mode, plan.kind, analysis)) throw new Error('This item changed or cannot be transferred in this mode.');
     const target = fresh.characters.find(c => c.id === targetId);
-    if (!C.planBatch(fresh.items, plan.grades, [itemId], target, plan.categories, 1, plan.reserve, plan.mode, plan.batchMode, plan.kind).batch.length) throw new Error('No space remains or this item is no longer eligible.');
+    if (!C.planBatch(fresh.items, plan.grades, [itemId], target, plan.categories, 1, plan.reserve, plan.mode, plan.batchMode, plan.kind, plan.keeperChoices || {}).batch.length) throw new Error('No space remains or this item is no longer eligible.');
     let tile = document.getElementById(itemId);
     if (!tile || !tile.classList.contains('item')) {
       search([itemId]);
@@ -264,7 +264,7 @@
     fresh = snapshot();
     if (!fresh.canTransfer || fresh.accountKey !== plan.accountKey) throw new Error('The account or connection changed before the transfer.');
     verifyKeeper(fresh,fresh.items.find(i=>i.id === itemId),plan);
-    if (!C.planBatch(fresh.items, plan.grades, [itemId], fresh.characters.find(c => c.id === targetId), plan.categories, 1, plan.reserve, plan.mode, plan.batchMode, plan.kind).batch.length) throw new Error('This item or the available space changed before the transfer.');
+    if (!C.planBatch(fresh.items, plan.grades, [itemId], fresh.characters.find(c => c.id === targetId), plan.categories, 1, plan.reserve, plan.mode, plan.batchMode, plan.kind, plan.keeperChoices || {}).batch.length) throw new Error('This item or the available space changed before the transfer.');
     if (stopped) throw new Error('Batch stopped.');
     mover();
     await waitFor(() => snapshot().items.find(i => i.id === itemId && i.owner === targetId && i.equipped === false), 30000);
@@ -272,7 +272,7 @@
   function verifyKeeper(snap,item,plan) {
     if (plan.kind !== 'armor' && plan.mode === 'duplicates') {
       const keeper = snap.items.find(i=>i.id === plan.replacements?.[item?.id]);
-      if (!keeper || plan.ids.includes(keeper.id) || !C.weaponDominates(keeper,item,plan.grades)) {
+      if (!keeper || plan.ids.includes(keeper.id) || !C.weaponDominates(keeper,item,plan.grades,Date.now(),plan.keeperChoices?.[C.weaponFamily(item)] === keeper.id)) {
         throw new Error('The retained weapon replacement changed, is missing or has no valid maximum. Review the batch again.');
       }
       return;
@@ -304,7 +304,7 @@
         const kind = payload.kind === 'armor' ? 'armor' : 'weapons';
         const mode = payload.mode === 'manual' ? 'manual' : payload.mode === 'duplicates' && kind === 'weapons' ? 'duplicates' : 'clean';
         const batchMode = payload.batchMode === 'total' ? 'total' : 'slot';
-        const plan = () => C.planBatch(snap.items, payload.grades || {}, payload.ids || [], target, payload.categories || [], payload.limit, payload.reserve, mode, batchMode, kind);
+        const plan = () => C.planBatch(snap.items, payload.grades || {}, payload.ids || [], target, payload.categories || [], payload.limit, payload.reserve, mode, batchMode, kind, payload.keeperChoices || {});
         let result = plan();
         // Dismantling in-game may leave DIM's cached inventory full. Refresh once
         // before refusing an otherwise eligible selection for lack of space.
@@ -323,7 +323,7 @@
           const spaces = Object.keys(target.capacity || {}).map(bucket => `${snap.items.find(i => i.bucket === bucket)?.bucketName || bucket}: ${C.freeSpaces(target, bucket, payload.reserve) ?? 'unverified'}`).join(' · ');
           throw new Error(`None of the selected ${kind === 'armor' ? 'armor pieces' : 'weapons'} fit in ${target.name}. Free spaces: ${spaces}.`);
         }
-        const analysis = kind === 'armor' ? C.armorAnalysis(snap.items) : mode === 'duplicates' ? C.weaponAnalysis(snap.items,payload.grades || {}) : null;
+        const analysis = kind === 'armor' ? C.armorAnalysis(snap.items) : mode === 'duplicates' ? C.weaponAnalysis(snap.items,payload.grades || {},Date.now(),payload.keeperChoices || {}) : null;
         const replacements = analysis && mode !== 'manual' ? Object.fromEntries(result.batch.map(i=>[i.id,analysis.records[i.id].keeperId])) : {};
         prepared = { ...payload, mode, batchMode, kind, replacements, ids: result.batch.map(i => i.id), accountKey: snap.accountKey, token: crypto.randomUUID(), expires: Date.now() + 120000 };
         emit('reply', { requestId, data: { token: prepared.token, batch: result.batch, target, skipped: result.skipped, counts: result.counts, mode, batchMode, kind, replacements, snapshot: snap } }); return;
