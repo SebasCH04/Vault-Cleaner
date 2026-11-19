@@ -1,6 +1,6 @@
 # Vault Cleaner · Destiny 2
 
-A Firefox extension with Weapons and Armor panels inside DIM and an offline interactive demo. Weapons use each exact copy's highest confirmed light.gg popularity rank. Armor cleanup identifies verified duplicates while preserving distinct rolls, tuning options and sets. The interface is in English.
+A Firefox extension with Weapons and Armor panels inside DIM and an offline interactive demo. Weapons use each exact copy's highest confirmed light.gg popularity rank, with a separate duplicate cleanup section that preserves distinct rolls. Armor cleanup identifies verified duplicates while preserving distinct rolls, tuning options and sets. The interface is in English.
 
 ## Install or update
 
@@ -8,7 +8,7 @@ A Firefox extension with Weapons and Armor panels inside DIM and an offline inte
 2. Open `about:debugging#/runtime/this-firefox` in Firefox.
 3. Remove the previous temporary Vault Cleaner extension, if installed.
 4. Click **Load Temporary Add-on** and select `manifest.json` in the extracted folder.
-5. Check version **0.2.1** in Firefox's extension details, then reload **DIM and light.gg** to replace their previous scripts. The panel itself does not show a version badge.
+5. Check version **0.3.0** in Firefox's extension details, then reload **DIM and light.gg** to replace their previous scripts. The panel itself does not show a version badge.
 6. Open DIM and click **Vault Cleaner** in the bottom-right corner.
 
 Temporary Firefox extensions must be loaded again after restarting Firefox. No Aegis extension is required. This package does not bundle Aegis.
@@ -63,13 +63,25 @@ Set cards count distinct slots across the vault and characters, separately for e
 
 Armor **Manual transfer** explicitly bypasses duplicate, set and cleanup protections. It allows you to select Keep, Review and protected copies, while preserving locks and tags and still checking class, equipped state, location and capacity. Review your manual choices before sending. Dismantling remains manual in Destiny 2.
 
+## Weapon duplicates
+
+Open **Weapons → Duplicates**, or choose **Duplicate cleanup** in Transfer mode. The section starts with **all maximum ranks**, including S and A, independently of the C/D/F filters used for Cleanup by maximum. Rank buttons count verified vault duplicates only. Each row has **Compare**, showing current and confirmed maximum rank on both copies, Power, masterwork investment, every available perk option by socket and the exact retained ID. Search includes unselected perk options.
+
+An eligible duplicate must have a retained copy of the **same item definition**, slot, tier, damage element, adept/holofoil variant, base stats, masterwork type and functional mod/socket access. The retained copy must cover **every available perk in every corresponding column**, have an equal or higher fresh confirmed maximum, no lower Power and at least as much existing masterwork investment. All perk hashes are compared exactly: enhanced and normal perks are not silently treated as equivalent. A higher rank or identical weapon name alone is insufficient; different PvE/PvP rolls and masterwork types remain separate.
+
+DIM's full perk pool is not used as the options on a copy. Randomized sockets require instance-level available plugs; actual selected plugs are preserved when DIM is only previewing a different selection. Missing or ambiguous perk/masterwork metadata and unconfirmed, contradictory or expired maxima do not enter duplicate cleanup. Open **All** in Duplicate cleanup mode to see **Keep**, **Review** and **Protected** reasons. Locks, favorite/keep/archive tags, loadouts, exotic weapons, crafted/enhanced weapons and Deepsight remain protected. A verified character-held copy may serve as a retained replacement.
+
+Identical copies retain one deterministic anchor. A copy classified as Duplicate never becomes another duplicate's retained reference in the same analysis. **Prepare batch** freezes the retained instance for every candidate, excludes those retained IDs from the batch and checks their perk coverage, Power, masterwork and maximum again immediately before each native STORE. If a retained instance disappears, its options change or a required maximum expires, transfer stops. Both batch sizing options and all capacity checks apply.
+
+Selecting **Candidates** returns to Cleanup by maximum and restores its rank filters. Changing transfer mode clears the selection. Duplicate cleanup does not change perks or dismantle items; transfer the reviewed copies, then dismantle them in Destiny 2.
+
 ## Transfer modes
 
 ### Cleanup by maximum
 
 Choose popularity ranks, select candidate vault weapons and click **Prepare batch**. Review the exact copies before sending them to your destination character. Dismantle them yourself in Destiny 2.
 
-Cleanup protects locked, equipped, favorite, keep/archive, loadout, crafted, exotic, Deepsight, non-transferable, postmaster and non-vault copies, as well as weapons without a confirmed maximum. The views are **Candidates**, **Protected**, **No maximum** and **All**. Rank buttons count only cleanup-ready vault weapons, so a protected or character-held copy does not inflate a cleanup rank. These counts cover every rank regardless of which rank filters you have selected. In Manual transfer they count transferable vault weapons with confirmed maxima, including cleanup-protected copies.
+Cleanup protects locked, equipped, favorite, keep/archive, loadout, crafted, exotic, Deepsight, non-transferable, postmaster and non-vault copies, as well as weapons without a confirmed maximum. The views are **Candidates**, **Duplicates**, **Protected**, **No maximum** and **All**; Duplicates switches to the separate mode described above. Rank buttons count only cleanup-ready vault weapons, so a protected or character-held copy does not inflate a cleanup rank. These counts cover every rank regardless of which rank filters you have selected. In Manual transfer they count transferable vault weapons with confirmed maxima, including cleanup-protected copies.
 
 ### Manual transfer
 
@@ -101,11 +113,11 @@ Diagnostics contain counters and limited marker/attribute samples, with no compl
 
 ## Offline demo
 
-Open `Vault-Cleaner-demo.html` from the ZIP. It contains sample weapons and armor and simulates transfers without connecting to an account. Try the Armor tab, sets, archetype filters, Compare, duplicate recommendations, both transfer modes, sizing options and review.
+Open `Vault-Cleaner-demo.html` from the ZIP. It contains sample weapons and armor and simulates transfers without connecting to an account. Try Weapons → Duplicates: sample S/A copies share a locked retained anchor, while a Stability-masterwork copy stays in Keep. Also try the Armor tab, sets, archetype filters, Compare, transfer modes, sizing options and review.
 
 ## Development checks
 
-Run `node --test tests/core.test.cjs tests/armor.test.cjs`. Browser fixtures require Playwright and a compatible Chromium binary; the included browser tests use `@sparticuz/chromium`. `tests/armor-browser.test.cjs` covers Armor UI and DIM-shaped armor metadata and native actions.
+Run `node --test tests/core.test.cjs tests/armor.test.cjs tests/weapon-duplicates.test.cjs`. Browser fixtures require Playwright and a compatible Chromium binary; the included browser tests use `@sparticuz/chromium`. `tests/armor-browser.test.cjs` covers Armor UI and DIM-shaped armor metadata and native actions. `tests/weapon-duplicates-browser.test.cjs` covers weapon duplicate UI, instance-level socket normalization, loot-pool exclusion, DIM overrides, frozen retained references, changed options, expiry and exact native actions.
 
 Armor checks cover stable retained references, matching features, stat-wise dominance, distinct archetypes/tertiary stats/tuning/tier, incomplete metadata, legacy armor, setless and untiered exotic duplicates, distinct exotic class-item perks, exotic/loadout/lock protections, Power and masterwork investment, full/incomplete set coverage, class restrictions, 45 per-slot/total sizing, reserves, explicit manual selection, normalized DIM sockets and stats, missing-replacement blocking, exact STORE without EQUIP and confirmed capacity updates.
 

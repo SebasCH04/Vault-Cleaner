@@ -79,6 +79,70 @@
   function canSelect(item, grades, categories, mode = 'clean', now = Date.now()) {
     return mode === 'manual' ? transferReasons(item).length === 0 : Boolean(eligible(item, grades, categories, now));
   }
+  function weaponProtection(item) {
+    const out = [];
+    if (item.locked !== false) out.push('Locked or unknown state');
+    if (['favorite','keep','archive'].includes(item.tag)) out.push('Favorite / keep / archive');
+    if (item.inLoadout) out.push('In a loadout');
+    if (item.exotic) out.push('Exotic');
+    if (item.crafted) out.push('Crafted / enhanced');
+    if (item.deepsight) out.push('Deepsight');
+    if (item.equipped !== false) out.push('Equipped or unknown state');
+    if (item.postmaster || item.notransfer) out.push('Not transferable');
+    return out;
+  }
+  function weaponGroup(item) {
+    const w = item?.weaponData;
+    if (!item?.weapon || !w?.complete || !normalizeId(item.id) || !Number.isInteger(item.hash) || item.hash <= 0 || !item.bucket ||
+        !Number.isInteger(w.tier) || w.tier < 0 || w.tier > 5 || typeof w.adept !== 'boolean' || typeof w.holofoil !== 'boolean' ||
+        !Number.isInteger(w.masterwork) || w.masterwork < 0 || w.masterwork > 10 || typeof w.masterworkType !== 'string' || !w.masterworkType ||
+        typeof w.features !== 'string' || !w.features || !Number.isInteger(w.element) || w.element <= 0 ||
+        !Array.isArray(w.base) || !w.base.length || !w.base.every(s=>Number.isInteger(s[0]) && Number.isFinite(s[1])) ||
+        !Array.isArray(w.columns) || w.columns.length < 5 || new Set(w.columns.map(c=>c.index)).size !== w.columns.length ||
+        !w.columns.every(c=>Number.isInteger(c.index) && c.index >= 0 && Number.isInteger(c.type) && c.type > 0 &&
+          Number.isInteger(c.category) && c.category > 0 && Array.isArray(c.options) && c.options.length &&
+          c.options.every(p=>Number.isInteger(p.hash) && p.hash > 0))) return null;
+    return JSON.stringify([item.hash,item.bucket,Boolean(item.exotic),Boolean(item.crafted),w.tier,w.adept,w.holofoil,w.element,
+      w.masterworkType,w.features,w.base,w.columns.map(c=>[c.index,c.type,c.category])]);
+  }
+  function weaponDominates(keeper, candidate, grades, now = Date.now()) {
+    if (!keeper || !candidate) return false;
+    const key = weaponGroup(candidate), best = gradeDetails(candidate,grades,now)?.best, retained = gradeDetails(keeper,grades,now)?.best;
+    return Boolean(key && keeper?.id !== candidate.id && weaponGroup(keeper) === key && best && retained &&
+      !keeper.postmaster && !keeper.notransfer && typeof keeper.equipped === 'boolean' &&
+      Number.isFinite(candidate.power) && Number.isFinite(keeper.power) && keeper.power >= candidate.power &&
+      gradeOrder(retained) <= gradeOrder(best) && keeper.weaponData.masterwork >= candidate.weaponData.masterwork &&
+      candidate.weaponData.columns.every(column=> {
+        const offers = keeper.weaponData.columns.find(c=>c.index === column.index);
+        return offers && column.options.every(p=>offers.options.some(k=>k.hash === p.hash));
+      }));
+  }
+  function weaponAnalysis(items, grades, now = Date.now()) {
+    const records = Object.create(null), groups = new Map();
+    for (const item of items.filter(i=>i.weapon)) {
+      const protection = weaponProtection(item), key = weaponGroup(item), best = gradeDetails(item,grades,now)?.best;
+      records[item.id] = {state:protection.length ? 'protected' : !key || !best ? 'review' : 'keep',
+        reason:protection[0] || (!best ? 'Sync a recent confirmed maximum in light.gg' : !key ? 'Incomplete perk or masterwork comparison data' : 'Distinct perk options or weapon investment')};
+      if (key && best && !item.postmaster && !item.notransfer && typeof item.equipped === 'boolean') {
+        if (!groups.has(key)) groups.set(key,[]);
+        groups.get(key).push(item);
+      }
+    }
+    for (const group of groups.values()) {
+      const options = item=>item.weaponData.columns.reduce((n,c)=>n+c.options.length,0);
+      const order = group.slice().sort((a,b)=>gradeOrder(gradeDetails(a,grades,now).best)-gradeOrder(gradeDetails(b,grades,now).best) ||
+        options(b)-options(a) || weaponProtection(b).length-weaponProtection(a).length ||
+        b.weaponData.masterwork-a.weaponData.masterwork || b.power-a.power || a.id.localeCompare(b.id));
+      const keepers = [];
+      for (const item of order) {
+        const keeper = item.owner === 'vault' && !weaponProtection(item).length && keepers.find(k=>weaponDominates(k,item,grades,now));
+        if (keeper) records[item.id] = {state:'duplicate',keeperId:keeper.id,
+          reason:'Retained copy covers every available perk with an equal or higher confirmed maximum'};
+        else keepers.push(item);
+      }
+    }
+    return {records};
+  }
   const ARMOR_SLOTS = ['3448274439','3551918588','14239492','20886954','1585787867'];
   const ARMOR_STATS = [2996146975,392767087,1943323491,1735777505,144602215,4244567218];
   const STAT_NAMES = ['Weapons','Health','Class','Grenade','Super','Melee'];
@@ -169,7 +233,8 @@
     return { records, sets:[...sets.values()].map(s=>({...s,slots:[...s.slots],retained:[...s.retained]})) };
   }
   function canSelectItem(item, grades, categories, mode, kind = 'weapons', analysis) {
-    if (kind !== 'armor') return Boolean(item.weapon && canSelect(item,grades,categories,mode));
+    if (kind !== 'armor') return Boolean(item.weapon && (mode === 'duplicates' ? transferReasons(item).length === 0 &&
+      analysis?.records[item.id]?.state === 'duplicate' && categories.includes(gradeDetails(item,grades)?.best?.[0]) : canSelect(item,grades,categories,mode)));
     return armorTransferReasons(item).length === 0 && (mode === 'manual' || analysis?.records[item.id]?.state === 'duplicate');
   }
   function freeSpaces(target, bucket, reserve = false) {
@@ -186,7 +251,8 @@
     const used = Object.create(null);
     const batch = [];
     const skipped = [];
-    const analysis = kind === 'armor' ? armorAnalysis(items) : null;
+    const duplicates = kind !== 'armor' && mode === 'duplicates';
+    const analysis = kind === 'armor' ? armorAnalysis(items) : duplicates ? weaponAnalysis(items,grades) : null;
     const keeperIds = new Set();
     for (const item of items) {
       if (!selected.has(item.id)) continue;
@@ -201,17 +267,17 @@
       if ((used[item.bucket] || 0) >= (totalMode ? 9 : max) || batch.length >= (totalMode ? max : totalMax)) { skipped.push({id:item.id,reason:'Batch limit reached.'}); continue; }
       used[item.bucket] = (used[item.bucket] || 0) + 1;
       batch.push(item);
-      if (kind === 'armor' && mode !== 'manual') keeperIds.add(analysis.records[item.id].keeperId);
+      if ((kind === 'armor' && mode !== 'manual') || duplicates) keeperIds.add(analysis.records[item.id].keeperId);
     }
-    if (batch.some(i=>keeperIds.has(i.id))) throw new Error('A retained armor copy cannot be included in its cleanup batch.');
-    return { batch, skipped, counts: { ...used }, ...(kind === 'armor' ? { keeperIds:[...keeperIds] } : {}) };
+    if (batch.some(i=>keeperIds.has(i.id))) throw new Error('A retained copy cannot be included in its duplicate cleanup batch.');
+    return { batch, skipped, counts: { ...used }, ...(kind === 'armor' || duplicates ? { keeperIds:[...keeperIds] } : {}) };
   }
   function exactSearch(ids) {
     const safe = [...new Set(ids.map(normalizeId).filter(Boolean))];
     if (!safe.length) throw new Error('No items selected.');
     return `(${safe.map(id => `id:${id}`).join(' or ')})`;
   }
-  const api = { normalizeId, normalizeGrade, gradeOrder, extractGrades, gradeDetails, gradeFor, transferReasons, reasons, eligible, canSelect, canSelectItem, armorTransferReasons, armorProtection, armorAnalysis, armorGroup, ARMOR_SLOTS, ARMOR_STATS, STAT_NAMES, CLASS_NAMES, freeSpaces, planBatch, exactSearch, MAX_GRADE_AGE };
+  const api = { normalizeId, normalizeGrade, gradeOrder, extractGrades, gradeDetails, gradeFor, transferReasons, reasons, eligible, canSelect, canSelectItem, weaponProtection, weaponGroup, weaponDominates, weaponAnalysis, armorTransferReasons, armorProtection, armorAnalysis, armorGroup, ARMOR_SLOTS, ARMOR_STATS, STAT_NAMES, CLASS_NAMES, freeSpaces, planBatch, exactSearch, MAX_GRADE_AGE };
   root.VaultCore = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(globalThis);

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Vault Cleaner · Destiny 2",
-  "version": "0.2.1",
-  "description": "Review light.gg weapon ranks and armor duplicates, preserve sets and transfer selected vault items in batches through DIM.",
+  "version": "0.3.0",
+  "description": "Review light.gg ranks and weapon or armor duplicates, preserve distinct rolls and sets, and transfer selected vault items in batches through DIM.",
   "permissions": [
     "storage"
   ],

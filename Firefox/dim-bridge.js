@@ -40,6 +40,48 @@
       }, 120);
     });
   }
+  function weaponData(item) {
+    const sockets = item.sockets?.allSockets || [];
+    const actual = s=>s.actuallyPlugged || s.plugged;
+    const cosmetic = s=>/skin|shader|ornament|tracker|memento/i.test(actual(s)?.plugDef?.plug?.plugCategoryIdentifier || '');
+    const masterworkSocket = s=>/masterwork/i.test(actual(s)?.plugDef?.plug?.plugCategoryIdentifier || '');
+    let verified = !item.missingSockets;
+    const columns = sockets.filter(s=>s.isPerk && !cosmetic(s) && !masterworkSocket(s)).map(s=> {
+      const selected = actual(s)?.plugDef, sd = s.socketDefinition || {};
+      const intrinsic = selected?.plug?.plugCategoryHash === 1744546145;
+      const live = s.reusablePlugItems;
+      const definitions = new Map((s.plugOptions || []).map(p=>[p.plugDef?.hash,p.plugDef]));
+      if (selected?.hash) definitions.set(selected.hash,selected);
+      // plugSet is the full loot pool, not this copy's rolled options. Random
+      // sockets need instance-level data. Include the actual plug, even when
+      // DIM's socket-override UI is previewing a different selection.
+      let hashes = intrinsic ? [selected?.hash] : Array.isArray(live) && live.length ? [selected?.hash,...live.map(p=>p.plugItemHash)] :
+        (s.hasRandomizedPlugItems || sd.randomizedPlugSetHash) ? [] : (s.plugOptions || []).map(p=>p.plugDef?.hash);
+      if (!hashes.length || hashes.some(hash=>!Number.isInteger(hash) || hash <= 0 || !definitions.has(hash)) ||
+          (s.plugOptions || []).some(p=>p.unreliablePerkOption)) verified = false;
+      hashes = [...new Set(hashes.filter(hash=>Number.isInteger(hash) && hash > 0))].sort((a,b)=>a-b);
+      return {index:s.socketIndex,type:sd.socketTypeHash || 0,category:selected?.plug?.plugCategoryHash || 0,
+        name:selected?.plug?.plugCategoryIdentifier?.includes('origin') ? 'Origin trait' : intrinsic ? 'Frame' : 'Perk slot '+s.socketIndex,
+        options:hashes.map(hash=>({hash,name:definitions.get(hash)?.displayProperties?.name || String(hash)}))};
+    }).sort((a,b)=>a.index-b.index);
+    const functional = sockets.filter(s=>!s.isPerk && !cosmetic(s) && !masterworkSocket(s)).map(s=> {
+      const def = actual(s)?.plugDef, sd = s.socketDefinition || {};
+      return [s.socketIndex,Boolean(s.visibleInGame),sd.socketTypeHash || 0,sd.reusablePlugSetHash || 0,sd.randomizedPlugSetHash || 0,
+        def?.plug?.plugCategoryHash || 0,s.isMod ? 0 : def?.hash || 0];
+    });
+    const base = (item.stats || []).map(s=>[s.statHash,s.base]).sort((a,b)=>a[0]-b[0]);
+    const mw = item.masterworkInfo;
+    const masterworkStats = (mw?.stats || []).map(s=>[s.hash,Boolean(s.isPrimary)]).sort((a,b)=>a[0]-b[0]);
+    const result = {tier:item.tier,adept:item.adept,holofoil:item.holofoil,element:item.element?.hash,
+      masterwork:mw?.tier,masterworkType:masterworkStats.length ? JSON.stringify(masterworkStats) : '',
+      masterworkName:(mw?.stats || []).filter(s=>s.isPrimary).map(s=>s.name).join(' / ') || 'Unknown masterwork',
+      base,columns,features:JSON.stringify(functional),complete:true};
+    // Reject missing and ambiguous metadata, including weapon socket previews.
+    result.complete = Boolean(verified && columns.some(c=>c.category === 1744546145) && Number.isFinite(item.power) &&
+      sockets.every(s=>!s.visibleInGame || actual(s)?.plugDef?.plug) && C.weaponGroup({id:String(item.id),hash:item.hash,
+        bucket:String(item.bucket.hash),weapon:true,exotic:Boolean(item.isExotic || item.rarity === 'Exotic'),crafted:Boolean(item.craftedInfo || item.crafted),weaponData:result}));
+    return result;
+  }
   function armorData(item) {
     const sockets = item.sockets?.allSockets || [];
     const category = s=>s.plugged?.plugDef?.plug?.plugCategoryHash;
@@ -113,9 +155,10 @@
       capacity: i.bucket.capacity, owner: store.isVault ? 'vault' : String(store.id), ownerName: store.name,
       locked: i.locked, equipped: i.equipped, weapon: Boolean(i.bucket.inWeapons), armor:Boolean(i.bucket.inArmor),
       ...(i.bucket.inArmor ? { armorData:armorData(i) } : {}),
+      ...(i.bucket.inWeapons ? { weaponData:weaponData(i) } : {}),
       tag: profile?.tags?.[i.id]?.tag || '',
       inLoadout: protectedIds.has(i.id) || protectedHashes.has(i.hash),
-      exotic: Boolean(i.isExotic || i.rarity === 'Exotic'), crafted: Boolean(i.craftedInfo),
+      exotic: Boolean(i.isExotic || i.rarity === 'Exotic'), crafted: Boolean(i.craftedInfo || i.crafted),
       deepsight: Boolean(i.deepsightInfo), notransfer: Boolean(i.notransfer),
       postmaster: Boolean(i.location?.inPostmaster), power: i.power || 0,
       perks: (i.sockets?.allSockets || []).filter(s => s.isPerk && s.plugged).map(s => s.plugged.plugDef?.displayProperties?.name).filter(Boolean).slice(0, 8)
@@ -204,7 +247,8 @@
     if (!fresh.canTransfer || fresh.accountKey !== plan.accountKey) throw new Error('The DIM account or connection changed. Refresh inventory.');
     const item = fresh.items.find(i => i.id === itemId);
     if (item) verifyKeeper(fresh,item,plan);
-    if (!item || !C.canSelectItem(item, plan.grades, plan.categories, plan.mode, plan.kind, plan.kind === 'armor' ? C.armorAnalysis(fresh.items) : null)) throw new Error('This item changed or cannot be transferred in this mode.');
+    const analysis = plan.kind === 'armor' ? C.armorAnalysis(fresh.items) : plan.mode === 'duplicates' ? C.weaponAnalysis(fresh.items,plan.grades) : null;
+    if (!item || !C.canSelectItem(item, plan.grades, plan.categories, plan.mode, plan.kind, analysis)) throw new Error('This item changed or cannot be transferred in this mode.');
     const target = fresh.characters.find(c => c.id === targetId);
     if (!C.planBatch(fresh.items, plan.grades, [itemId], target, plan.categories, 1, plan.reserve, plan.mode, plan.batchMode, plan.kind).batch.length) throw new Error('No space remains or this item is no longer eligible.');
     let tile = document.getElementById(itemId);
@@ -226,6 +270,13 @@
     await waitFor(() => snapshot().items.find(i => i.id === itemId && i.owner === targetId && i.equipped === false), 30000);
   }
   function verifyKeeper(snap,item,plan) {
+    if (plan.kind !== 'armor' && plan.mode === 'duplicates') {
+      const keeper = snap.items.find(i=>i.id === plan.replacements?.[item?.id]);
+      if (!keeper || plan.ids.includes(keeper.id) || !C.weaponDominates(keeper,item,plan.grades)) {
+        throw new Error('The retained weapon replacement changed, is missing or has no valid maximum. Review the batch again.');
+      }
+      return;
+    }
     if (plan.kind !== 'armor' || plan.mode === 'manual') return;
     const keeper = snap.items.find(i=>i.id === plan.replacements?.[item?.id]);
     if (!keeper || plan.ids.includes(keeper.id) || keeper.postmaster || keeper.notransfer || typeof keeper.equipped !== 'boolean' ||
@@ -250,9 +301,9 @@
         let snap = snapshot();
         if (!snap.canTransfer) throw new Error(snap.warnings.join(' '));
         let target = snap.characters.find(c => c.id === payload.targetId);
-        const mode = payload.mode === 'manual' ? 'manual' : 'clean';
-        const batchMode = payload.batchMode === 'total' ? 'total' : 'slot';
         const kind = payload.kind === 'armor' ? 'armor' : 'weapons';
+        const mode = payload.mode === 'manual' ? 'manual' : payload.mode === 'duplicates' && kind === 'weapons' ? 'duplicates' : 'clean';
+        const batchMode = payload.batchMode === 'total' ? 'total' : 'slot';
         const plan = () => C.planBatch(snap.items, payload.grades || {}, payload.ids || [], target, payload.categories || [], payload.limit, payload.reserve, mode, batchMode, kind);
         let result = plan();
         // Dismantling in-game may leave DIM's cached inventory full. Refresh once
@@ -272,8 +323,8 @@
           const spaces = Object.keys(target.capacity || {}).map(bucket => `${snap.items.find(i => i.bucket === bucket)?.bucketName || bucket}: ${C.freeSpaces(target, bucket, payload.reserve) ?? 'unverified'}`).join(' · ');
           throw new Error(`None of the selected ${kind === 'armor' ? 'armor pieces' : 'weapons'} fit in ${target.name}. Free spaces: ${spaces}.`);
         }
-        const armor = kind === 'armor' ? C.armorAnalysis(snap.items) : null;
-        const replacements = kind === 'armor' && mode !== 'manual' ? Object.fromEntries(result.batch.map(i=>[i.id,armor.records[i.id].keeperId])) : {};
+        const analysis = kind === 'armor' ? C.armorAnalysis(snap.items) : mode === 'duplicates' ? C.weaponAnalysis(snap.items,payload.grades || {}) : null;
+        const replacements = analysis && mode !== 'manual' ? Object.fromEntries(result.batch.map(i=>[i.id,analysis.records[i.id].keeperId])) : {};
         prepared = { ...payload, mode, batchMode, kind, replacements, ids: result.batch.map(i => i.id), accountKey: snap.accountKey, token: crypto.randomUUID(), expires: Date.now() + 120000 };
         emit('reply', { requestId, data: { token: prepared.token, batch: result.batch, target, skipped: result.skipped, counts: result.counts, mode, batchMode, kind, replacements, snapshot: snap } }); return;
       }

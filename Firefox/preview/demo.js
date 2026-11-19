@@ -17,6 +17,20 @@
   snap.items.forEach((item, i) => { if (letters[i]) grades[item.id] = { grade: letters[i], bestGrade:letters[i], currentGrade:letters[i], basis: 'best', at: now, source: 'demo' }; });
   Object.assign(grades[snap.items[6].id],{grade:'S',bestGrade:'S',currentGrade:'C'});
   Object.assign(grades[snap.items[13].id],{grade:'B-',bestGrade:'B-',currentGrade:'D'});
+  // Sample weapon duplicates include a maximum-S copy and unselected perks.
+  const rollColumns = ['Adaptive Frame','Arrowhead Brake','Accurized Rounds','Explosive Payload','Kinetic Tremors'].map((name,index)=>({
+    index,type:1100+index,category:1200+index,name:index ? 'Perk slot '+index : 'Frame',options:[{hash:1300+index,name}]}));
+  const weaponData = {complete:true,tier:0,adept:false,holofoil:false,element:1,masterwork:10,masterworkType:'Range',masterworkName:'Range',
+    base:[[1,50],[2,35]],columns:rollColumns,features:'standard mods'};
+  for(let n=0;n<4;n++) {
+    const item={id:String(6917530200000020000n+BigInt(n)),hash:903,name:'Midnight Coup',type:'Hand cannon',bucket:'kinetic',bucketName:'Kinetic',
+      owner:'vault',ownerName:'Vault',weapon:true,locked:n===0,equipped:false,power:550,perks:['Explosive Payload','Kinetic Tremors'],
+      weaponData:structuredClone(weaponData)};
+    if(n===2){item.weaponData.masterwork=5;item.weaponData.columns[4].options=[{hash:1304,name:'Kinetic Tremors'}];}
+    else item.weaponData.columns[4].options.push({hash:1314,name:'Frenzy'});
+    if(n===3)item.weaponData.masterworkType=item.weaponData.masterworkName='Stability';
+    snap.items.push(item);grades[item.id]={grade:n===2 ? 'A' : 'S',bestGrade:n===2 ? 'A' : 'S',currentGrade:n===1 ? 'C' : n===2 ? 'A' : 'S',basis:'best',at:now,source:'demo'};
+  }
   // Illustrative armor rolls: a complete set, duplicates, distinct archetypes,
   // unique tuning choices, legacy armor and comparable exotic copies.
   const armorNames = ['Tecsec Mask','Tecsec Grips','Tecsec Vest','Tecsec Strides','Tecsec Cloak'];
@@ -50,8 +64,8 @@
       const target = snap.characters.find(c => c.id === payload.targetId);
       const result = VaultCore.planBatch(snap.items, grades, payload.ids, target, payload.categories, payload.limit, payload.reserve, payload.mode, payload.batchMode, payload.kind);
       if (!result.batch.length) throw new Error('No space is available for this batch.');
-      const analysis = payload.kind === 'armor' ? VaultCore.armorAnalysis(snap.items) : null;
-      const replacements = payload.kind === 'armor' && payload.mode !== 'manual' ? Object.fromEntries(result.batch.map(i=>[i.id,analysis.records[i.id].keeperId])) : {};
+      const analysis = payload.kind === 'armor' ? VaultCore.armorAnalysis(snap.items) : payload.mode === 'duplicates' ? VaultCore.weaponAnalysis(snap.items,grades) : null;
+      const replacements = analysis && payload.mode !== 'manual' ? Object.fromEntries(result.batch.map(i=>[i.id,analysis.records[i.id].keeperId])) : {};
       plan = { ...payload, ...result, replacements, token: crypto.randomUUID(), target };
       return structuredClone(plan);
     },

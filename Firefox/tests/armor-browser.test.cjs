@@ -9,7 +9,7 @@ const root = path.resolve(__dirname,'..');
     const page=await browser.newPage({viewport:{width:1440,height:1200}});
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
     await page.goto('file://'+root+'/preview/demo.html');
-    await page.waitForFunction(()=>document.getElementById('app').shadowRoot.getElementById('total').textContent==='18');
+    await page.waitForFunction(()=>document.getElementById('app').shadowRoot.getElementById('total').textContent==='22');
     await page.locator('[data-kind=armor]').click();
     assert.equal(await page.locator('#total').textContent(),'17');
     assert.equal(await page.locator('#candidates').textContent(),'5');
@@ -53,7 +53,7 @@ const root = path.resolve(__dirname,'..');
     await page.waitForFunction(()=>document.getElementById('app').shadowRoot.getElementById('status').textContent.includes('5 armor pieces transferred and confirmed'));
     assert.equal(await page.locator('#candidates').textContent(),'0');
     assert.match(await page.locator('#armor-sets').textContent(),/5 slots retained/);
-    await page.locator('[data-kind=weapons]').click();assert.equal(await page.locator('#total').textContent(),'18');assert.equal(await page.locator('#limit').getAttribute('max'),'27');
+    await page.locator('[data-kind=weapons]').click();assert.equal(await page.locator('#total').textContent(),'22');assert.equal(await page.locator('#limit').getAttribute('max'),'27');
     console.log('PASS Armor UI: exotic duplicates, intrinsic-perk search and Compare, scoped counts, sets, archetype/Review/Protected views, 45 total sizing, retained IDs, simulated transfers and unchanged Weapons scope');
 
     await page.goto('file://'+root+'/popup.html');
