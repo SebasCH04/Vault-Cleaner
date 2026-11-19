@@ -60,12 +60,21 @@
     const grade = C.normalizeGrade(node.getAttribute('data-grade'));
     return grade ? { grade, priority: 1, kind: 'grade-attribute', role } : null;
   }
-  function hasHigherRank(node) {
-    const labels = ['title','aria-label','data-original-title','data-tooltip'].map(key => node.getAttribute(key) || '');
-    if (node.getAttribute('data-higher-rank-possible') === 'true') return true;
-    if (node.matches('.higher-rank-possible, .higher-rank') && node.getClientRects().length) return true;
+  function rankNotice(node) {
+    const labels = ['title','aria-label','alt','data-original-title','data-tooltip'].map(key => node.getAttribute(key) || '');
     if (!node.matches('script, style, input, textarea') && Array.from(node.childNodes).slice(0, 4).some(n => n.nodeType === Node.TEXT_NODE && n.nodeValue.trim())) labels.push(shortText(node));
-    return labels.some(value => /higher\s+rank\s+possible|rango\s+(?:superior|mayor)\s+posible/i.test(value.slice(0, 256)));
+    let bestGrade = null, possible = false;
+    for (const label of labels) {
+      const value = label.slice(0,256);
+      if (/\b(?:no|not|sin)\s+(?:higher|rango)/i.test(value)) continue;
+      const grade = C.normalizeGrade(value.match(/\b([SABCDF][+-]?)\s+rank\s+possible\b/i)?.[1] || value.match(/rango\s+([SABCDF][+-]?)\s+posible\b/i)?.[1]);
+      if (grade) bestGrade = grade;
+      if (grade || /higher\s+rank\s+possible|rango\s+(?:superior|mayor)\s+posible/i.test(value)) possible = true;
+    }
+    const explicit = node.getAttribute('data-higher-rank-possible') === 'true';
+    const named = node.matches('.higher-rank-possible, .higher-rank');
+    if (!(possible || explicit || named) || !node.getClientRects().length) return null;
+    return {bestGrade, source: bestGrade ? 'badge' : 'notice'};
   }
   function description(node) {
     return { tag: node.tagName, classes: (node.getAttribute('class') || '').slice(0, 180), idAttribute: (node.id || '').replace(/\d{18,20}/g, id => '…' + id.slice(-8)).slice(0, 100), instanceAttributes: Array.from(node.attributes || []).filter(attr => /\d{18,20}/.test(attr.value) && attr.name !== 'value' && !attr.name.startsWith('on')).map(attr => attr.name).slice(0, 10) };
@@ -91,7 +100,8 @@
       const meta = result.metadata || {}, combined = { ...record };
       if (C.normalizeGrade(meta.currentGrade)) combined.currentGrade = meta.currentGrade;
       if (C.normalizeGrade(meta.bestGrade)) { combined.bestGrade = meta.bestGrade; combined.grade = meta.bestGrade; combined.basis = 'best'; }
-      if (typeof meta.higherRankPossible === 'boolean') { combined.higherRankPossible = meta.higherRankPossible; combined.higherRankChecked = true; }
+      if (typeof meta.higherRankPossible === 'boolean' && !['badge','notice'].includes(combined.rankImprovementSource)) { combined.higherRankPossible = meta.higherRankPossible; combined.rankImprovementChecked = true; combined.rankImprovementSource = 'native-rank'; }
+      else if (typeof meta.higherRankPossible !== 'boolean' && combined.currentGrade && combined.bestGrade && C.gradeOrder(combined.bestGrade) < C.gradeOrder(combined.currentGrade)) { combined.higherRankPossible = true; combined.rankImprovementChecked = true; combined.rankImprovementSource ||= 'comparison'; }
       collect(id, combined, true);
     }).catch(() => {});
     if (!saveTimer) saveTimer = setTimeout(flush, 300);
@@ -116,13 +126,21 @@
       if (container === document.body || container === document.documentElement || bar.contains(container)) break;
       const ids = new Set();
       const ranks = { current: { priority: 0, values: new Set() }, best: { priority: 0, values: new Set() } };
-      let visited = 0, higherRankPossible = false;
+      let visited = 0, higherRankPossible = false, rankImprovementSource = null;
       const tree = document.createTreeWalker(container, NodeFilter.SHOW_ELEMENT);
       let current = container;
       while (current && visited < MAX_CARD_NODES) {
         for (const id of idsAt(current)) ids.add(id);
         if (ids.size > 1) break;
-        higherRankPossible ||= hasHigherRank(current) || (current.matches('button, [role=button], [ng-click], [data-ng-click]') && isApply(current) && !current.disabled);
+        const notice = rankNotice(current);
+        if (notice) {
+          higherRankPossible = true; rankImprovementSource = notice.source;
+          if (notice.bestGrade) {
+            const rank = ranks.best;
+            if (rank.priority < 4) { rank.priority = 4; rank.values.clear(); }
+            if (rank.priority === 4) rank.values.add(notice.bestGrade);
+          }
+        }
         const marker = readMarker(current);
         if (marker) {
           const rank = ranks[marker.role];
@@ -136,8 +154,9 @@
       if (current) { stats.tooLarge++; break; }
       if (ranks.current.values.size > 1 || ranks.best.values.size > 1) { stats.conflictingGrades++; candidate = null; break; }
       const currentGrade = [...ranks.current.values][0], bestGrade = [...ranks.best.values][0];
+      if (currentGrade && bestGrade && C.gradeOrder(bestGrade) < C.gradeOrder(currentGrade)) { higherRankPossible = true; rankImprovementSource ||= 'comparison'; }
       if (ids.size === 1 && ids.has(expectedId) && (currentGrade || bestGrade)) {
-        candidate = { container, record: { grade: bestGrade || currentGrade, basis: bestGrade ? 'best' : 'displayed', higherRankPossible } };
+        candidate = { container, record: { grade: bestGrade || currentGrade, basis: bestGrade ? 'best' : 'displayed', higherRankPossible, rankImprovementChecked: true, rankImprovementSource } };
         if (currentGrade) candidate.record.currentGrade = currentGrade;
         if (bestGrade) candidate.record.bestGrade = bestGrade;
       }
@@ -317,7 +336,7 @@
   });
   function diagnostic() {
     const controls = [...document.querySelectorAll('button, [role=button], [ng-click], [data-ng-click]')].filter(node=>!bar.contains(node) && visible(node)).slice(0,80).map(node=>({tag:node.tagName,classes:(node.className || '').toString().slice(0,120),label:shortText(node).slice(0,120),title:(node.getAttribute('title') || '').slice(0,120),hasAngularBinding:node.hasAttribute('ng-click') || node.hasAttribute('data-ng-click'),apply:isApply(node)}));
-    const report = { controls, nativeReady, version: '0.1.4', lastAction, captureBasis, page: location.pathname, state: stopped ? 'stopped' : scanning ? 'scanning' : 'idle', capturedThisSession: seen.size, saved: count, counters: stats, samples, limits: { maxCardNodes: MAX_CARD_NODES, maxAncestors: MAX_ANCESTORS, sliceMs: SLICE_MS } };
+    const report = { controls, nativeReady, version: '0.1.5', lastAction, captureBasis, page: location.pathname, state: stopped ? 'stopped' : scanning ? 'scanning' : 'idle', capturedThisSession: seen.size, saved: count, counters: stats, samples, limits: { maxCardNodes: MAX_CARD_NODES, maxAncestors: MAX_ANCESTORS, sliceMs: SLICE_MS } };
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'Vault-Cleaner-diagnostico.json';
     bar.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);

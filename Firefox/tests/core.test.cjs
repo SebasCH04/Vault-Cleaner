@@ -81,9 +81,9 @@ test('Batch planning excludes a selected D that can reach A', () => {
   const target={id:'c',capacity:{energy:10},occupied:{energy:1}};
   assert.equal(C.planBatch([base],records,[id],target,['D'],9,true).batch.length,0);
 });
-test('Best-only copies with alternative perks stay visible as pending checks',()=>{
+test('Best-only copies stay outside Mejorables even with alternative perks',()=>{
  const records={[id]:{grade:'A',bestGrade:'A',basis:'best',at:now}};
- assert.equal(C.improvementFor({...base,alternativePerks:true},records),'check');
+ assert.equal(C.improvementFor({...base,alternativePerks:true},records),'none');
  assert.equal(C.improvementFor({...base,alternativePerks:false},records),'none');
  assert.equal(C.improvementFor(base,{[id]:{...records[id],currentGrade:'D'}}),'improvable');
  assert.equal(C.improvementFor(base,{[id]:{...records[id],currentGrade:'A'}}),'none');
@@ -92,4 +92,21 @@ test('Refreshing a current rank does not extend the lifetime of an old maximum',
  const records={[id]:{grade:'D',currentGrade:'D',currentAt:now,bestGrade:'A',bestAt:now-C.MAX_GRADE_AGE-1,at:now}};
  assert.equal(C.gradeDetails(base,records).best,null);
  assert.equal(C.eligible(base,records,['D']),false);
+});
+
+test('Only fresh verified rank warnings qualify without a current grade',()=>{
+ const record={grade:'B-',bestGrade:'B-',basis:'best',higherRankPossible:true,at:now};
+ assert.equal(C.improvementFor(base,{[id]:record}),'none');
+ assert.equal(C.improvementFor(base,{[id]:{...record,rankImprovementChecked:true}}),'improvable');
+ assert.equal(C.improvementFor(base,{[id]:{...record,rankImprovementChecked:true,rankImprovementAt:now-C.MAX_GRADE_AGE-1}}),'none');
+});
+test('An equal grade never counts as a tier increase, even with an old arrow flag',()=>{
+ const record={grade:'B-',currentGrade:'B-',bestGrade:'B-',higherRankPossible:true,rankImprovementChecked:true,at:now};
+ assert.equal(C.improvementFor(base,{[id]:record}),'none');
+ assert.equal(C.improvementFor(base,{[id]:{...record,currentGrade:'C+'}}),'improvable');
+ assert.equal(C.improvementFor(base,{[id]:{...record,currentGrade:'A'}}),'none');
+});
+test('A newer negative rank check overrides a previously stored maximum',()=>{
+ const record={grade:'C',currentGrade:'C',bestGrade:'B-',bestAt:now-1000,at:now,rankImprovementChecked:true,higherRankPossible:false,rankImprovementAt:now};
+ assert.equal(C.improvementFor(base,{[id]:record}),'none');
 });

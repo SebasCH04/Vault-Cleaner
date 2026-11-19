@@ -9,14 +9,14 @@ const assert=require('node:assert/strict');const fs=require('node:fs');const pat
    window.saved={};window.nativeLog=[];for (const name of ['vc-lightgg-native-request','vc-lightgg-native-response']) document.addEventListener(name,e=>nativeLog.push({name,detail:JSON.parse(e.detail)}));window.handlers=[];window.calls={right:0,wrong:0};
    window.browser={runtime:{sendMessage:async msg=>{Object.assign(saved,msg.grades);return{total:Object.keys(saved).length};},onMessage:{addListener:fn=>handlers.push(fn)}}};
    const card=document.querySelector('article');
-   card.__scope={Roll:{InstanceId:'6917530200300190001',CurrentPopularityRank:'D',BestPopularityRank:'A',CanImprove:true}};
+   card.__scope={Roll:{InstanceId:'6917530200300190001',CurrentPopularityRank:'D',BestPopularityRank:'A',HigherRankPossible:true}};
    document.getElementById('wrong-inspector').__scope={Roll:{InstanceId:'6917530200300190002'}};
    document.querySelector('#wrong-inspector button').onclick=()=>calls.wrong++;
    window.angular={element:el=>({scope:()=>el.__scope})};
    document.getElementById('inspect').onclick=()=>{
     const inspector=document.getElementById('inspector');inspector.__scope=card.__scope;
     inspector.innerHTML='<button ng-click="EquipPopularPerks(Roll)">Equip Popular Perks</button>';
-    inspector.querySelector('button').onclick=()=>{calls.right++;card.__scope.Roll.CurrentPopularityRank='A';card.__scope.Roll.CanImprove=false;};
+    inspector.querySelector('button').onclick=()=>{calls.right++;card.__scope.Roll.CurrentPopularityRank='A';card.__scope.Roll.HigherRankPossible=false;};
    };
    window.runMessage=msg=>handlers[0](msg);
   });
@@ -30,6 +30,8 @@ const assert=require('node:assert/strict');const fs=require('node:fs');const pat
   assert.equal(result.ok,true);assert.equal(result.status,'submitted');
   const calls=await page.evaluate(()=>calls);assert.equal(calls.right,1);assert.equal(calls.wrong,0);
   console.log('PASS native action: inspect exact copy, reject wrong inspector, click only its Equip Popular Perks once; status remains submitted');
+  const alreadyMax=await page.evaluate(()=>runMessage({type:'vc-lightgg-apply',id:'6917530200300190001'}));assert.equal(alreadyMax.ok,false);assert.equal((await page.evaluate(()=>calls)).right,1);
+  console.log('PASS native action: recheck rejects a copy that already reached its maximum');
   await page.evaluate(()=>document.querySelector('article').dataset.id='6917530200300190003');
   const recycled=await page.evaluate(()=>runMessage({type:'vc-lightgg-apply',id:'6917530200300190001'}));assert.equal(recycled.ok,false);
   assert.equal((await page.evaluate(()=>calls)).right,1);
@@ -37,9 +39,9 @@ const assert=require('node:assert/strict');const fs=require('node:fs');const pat
   assert.deepEqual(errors,[]);
  } finally {await browser.close();}
  // Background routing is exercised independently with two open light.gg tabs.
- const grades={'6917530200300190001':{grade:'A',bestGrade:'A',at:Date.now()}};let listener;const actions=[];
+ const grades={'6917530200300190001':{grade:'A',bestGrade:'A',currentGrade:'D',at:Date.now()}};let listener;const actions=[];
  const fake={runtime:{onMessage:{addListener:fn=>listener=fn}},storage:{local:{get:async()=>({vcGrades:grades}),set:async()=>{}}},tabs:{query:async()=>[{id:1,active:true},{id:2,active:false}],update:async id=>actions.push(['activate',id]),sendMessage:async(id,msg)=>{actions.push([msg.type,id]);return msg.type==='vc-lightgg-probe' ? {found:id===2}:{ok:true,status:'submitted'};}}};
- vm.runInNewContext(fs.readFileSync(root+'/background.js','utf8'),{browser:fake,URL,Date});
+ vm.runInNewContext(fs.readFileSync(root+'/background.js','utf8'),{browser:fake,URL,Date,VaultCore:require('../core.js')});
  assert.equal(listener({type:'apply-popular',id:'6917530200300190001'},{url:'https://example.org'}),undefined);
  const reply=await listener({type:'apply-popular',id:'6917530200300190001'},{url:'https://app.destinyitemmanager.com/'});
  assert.equal(reply.status,'submitted');assert.equal(grades['6917530200300190001'],undefined);

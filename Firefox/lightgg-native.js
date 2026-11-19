@@ -52,7 +52,7 @@
     const result = {};
     for (const key of Object.keys(model).slice(0,100)) {
       const value = model[key];
-      if (/higher.*rank|can.*(?:improve|optimi)|needs.*(?:popular|perk)/i.test(key) && typeof value === 'boolean') result.higherRankPossible = value;
+      if (/higher.*(?:rank|grade)|(?:rank|grade).*higher|can.*improve.*(?:rank|grade|popularity)/i.test(key) && typeof value === 'boolean') result.higherRankPossible = value;
       if (typeof value !== 'string' || !GRADE.test(value.toUpperCase())) continue;
       if (/best|max|highest/i.test(key) && /rank|grade|quality/i.test(key)) result.bestGrade = value.toUpperCase();
       else if (/current|equipped|selected/i.test(key) && /rank|grade|quality/i.test(key)) result.currentGrade = value.toUpperCase();
@@ -93,6 +93,11 @@
       if (!node.isConnected || !node.getClientRects().length || node.disabled || node.getAttribute('aria-disabled')==='true') throw new Error('El control nativo no está disponible.');
       if (ids.size && !exactModel) throw new Error('El inspector corresponde a otra copia.');
       if (!exactModel && !directIdentity(node,request.id)) throw new Error('No se pudo verificar la copia del arma en el control nativo.');
+      if (exactModel) {
+        const meta=metadata(exactModel);
+        const order=grade=>'SABCDF'.indexOf(grade[0])*3+(grade.endsWith('+')?0:grade.endsWith('-')?2:1);
+        if (meta.higherRankPossible === false || (meta.currentGrade && meta.bestGrade && order(meta.bestGrade)>=order(meta.currentGrade))) throw new Error('Esta copia ya no muestra una subida de rango de popularidad. Vuelve a sincronizar.');
+      }
       node.click();
       // Click submission is not a Bungie success acknowledgement.
       reply({ok:true,status:'submitted'});

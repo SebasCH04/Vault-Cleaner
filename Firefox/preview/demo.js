@@ -15,11 +15,11 @@
   };
   const grades = {};
   snap.items.forEach((item, i) => { if (letters[i]) grades[item.id] = { grade: letters[i], bestGrade: letters[i], currentGrade: letters[i], at: now, source: 'demo' }; });
-  // Two rescued copies and one higher-rank warning without a known maximum.
+  // Confirmed tier increases; a best-only copy remains outside Mejorables.
   grades[snap.items[6].id].currentGrade = 'D';
   grades[snap.items[7].id].currentGrade = 'C';
   delete grades[snap.items[8].id].currentGrade; grades[snap.items[8].id].basis='best';
-  grades[snap.items[13].id] = { grade: 'D', currentGrade: 'D', higherRankPossible: true, at: now, source: 'demo' };
+  grades[snap.items[13].id] = { grade: 'B-', bestGrade: 'B-', currentGrade: 'D', higherRankPossible: true, rankImprovementChecked:true, rankImprovementSource:'badge', at: now, source: 'demo' };
   let plan = null, progress = () => {}, stopped = false;
   const adapter = {
     snapshot: async () => structuredClone(snap), grades: async () => structuredClone(grades),

@@ -16,7 +16,8 @@ browser.runtime.onMessage.addListener((msg, sender) => {
           const valid = value => typeof value === 'string' && /^(?:S|A|B|C|D|F)[+-]?$/.test(value);
           const previous = grades[id] || {};
           const fresh = value => Number.isFinite(value) && now-value <= 48*60*60*1000 && value <= now+60000;
-          const merged = { grade, at: now, source: 'dom', basis: record.basis === 'best' ? 'best' : 'displayed', higherRankPossible: record.higherRankChecked === true ? record.higherRankPossible === true : record.higherRankPossible === true || (fresh(previous.at) && previous.higherRankPossible === true) };
+          const merged = { grade, at: now, source: 'dom', basis: record.basis === 'best' ? 'best' : 'displayed', higherRankPossible: record.rankImprovementChecked === true && record.higherRankPossible === true, rankImprovementChecked: record.rankImprovementChecked === true, rankImprovementAt: now };
+          if (['badge','notice','native-rank','comparison'].includes(record.rankImprovementSource)) merged.rankImprovementSource=record.rankImprovementSource;
           if (valid(record.bestGrade)) { merged.bestGrade = record.bestGrade; merged.bestAt = now; }
           else if (valid(previous.bestGrade) && fresh(previous.bestAt ?? previous.at)) { merged.bestGrade = previous.bestGrade; merged.bestAt = previous.bestAt ?? previous.at; }
           if (valid(record.currentGrade)) { merged.currentGrade = record.currentGrade; merged.currentAt = now; }
@@ -33,6 +34,9 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   if (msg.type === 'apply-popular' && ['https://app.destinyitemmanager.com','https://beta.destinyitemmanager.com'].includes(origin)) {
     return (async () => {
       if (!/^\d{18,20}$/.test(msg.id) || typeof msg.id !== 'string') throw new Error('ID de copia inválido.');
+      await writes.catch(()=>{});
+      const stored = await browser.storage.local.get('vcGrades');
+      if (VaultCore.improvementFor({id:msg.id,weapon:true},stored.vcGrades || {}) !== 'improvable') throw new Error('Esta copia no tiene una subida de rango confirmada. Vuelve a sincronizar light.gg.');
       const tabs = await browser.tabs.query({url:'https://www.light.gg/god-roll/roll-appraiser/*'});
       const ordered = tabs.sort((a,b)=>Number(b.active)-Number(a.active) || (b.lastAccessed || 0)-(a.lastAccessed || 0));
       let match;
