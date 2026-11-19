@@ -43,6 +43,7 @@
   function armorData(item) {
     const sockets = item.sockets?.allSockets || [];
     const category = s=>s.plugged?.plugDef?.plug?.plugCategoryHash;
+    const exotic = Boolean(item.isExotic || item.rarity === 'Exotic');
     const archetype = sockets.find(s=>category(s) === 778194869)?.plugged?.plugDef;
     const masterwork = sockets.find(s=>category(s) === 2198080209);
     const tuning = sockets.find(s=>s.visibleInGame && category(s) === 3481777685);
@@ -69,8 +70,12 @@
     const classType = Number.isInteger(item.classType) ? item.classType : null;
     const tier = Number.isInteger(item.tier) ? item.tier : null;
     const setHash = item.setBonus?.hash || null;
-    const complete = Boolean(masterwork && archetype?.hash && setHash && [0,1,2].includes(classType) &&
-      tier >= 1 && tier <= 5 && base.every(v=>Number.isInteger(v) && v >= 0) &&
+    const exoticPerks = exotic ? sockets.filter(s=>s.isPerk && s.visibleInGame && [1744546145,748854354].includes(category(s)))
+      .map(s=>[s.socketIndex,s.plugged?.plugDef?.hash || null]).sort((a,b)=>a[0]-b[0]) : [];
+    const verifiedExotic = !exotic || (exoticPerks.length >= (String(item.bucket.hash) === C.ARMOR_SLOTS[4] ? 2 : 1) &&
+      exoticPerks.every(p=>Number.isInteger(p[0]) && p[0] >= 0 && Number.isInteger(p[1]) && p[1] > 0));
+    const complete = Boolean(masterwork && archetype?.hash && (exotic || setHash) && verifiedExotic && [0,1,2].includes(classType) &&
+      Number.isInteger(tier) && tier >= (exotic ? 0 : 1) && tier <= 5 && base.every(v=>Number.isInteger(v) && v >= 0) &&
       Number.isFinite(item.power) && Number.isInteger(masterworkLevel) && masterworkLevel >= 0 && masterworkLevel <= 5 &&
       (!tuning || tuningOptions.length) && sockets.every(s=>!s.visibleInGame || s.plugged?.plugDef?.plug));
     const bonuses = item.setBonus?.setPerks || [];
@@ -81,7 +86,7 @@
       generation:masterwork ? 3 : 2,base:base.map(v=>Number.isInteger(v) ? v : null),
       potential:base.map(v=>Number.isInteger(v) ? (masterwork && v === 0 ? 5 : v) : null),
       masterwork:masterworkLevel,
-      tuningOptions,features:JSON.stringify([features,tuningOptions]),complete };
+      tuningOptions,exoticPerks,features:JSON.stringify([features,tuningOptions]),complete };
   }
   function snapshot() {
     const state = getStore().getState();
@@ -110,7 +115,7 @@
       ...(i.bucket.inArmor ? { armorData:armorData(i) } : {}),
       tag: profile?.tags?.[i.id]?.tag || '',
       inLoadout: protectedIds.has(i.id) || protectedHashes.has(i.hash),
-      exotic: i.rarity === 'Exotic', crafted: Boolean(i.craftedInfo),
+      exotic: Boolean(i.isExotic || i.rarity === 'Exotic'), crafted: Boolean(i.craftedInfo),
       deepsight: Boolean(i.deepsightInfo), notransfer: Boolean(i.notransfer),
       postmaster: Boolean(i.location?.inPostmaster), power: i.power || 0,
       perks: (i.sockets?.allSockets || []).filter(s => s.isPerk && s.plugged).map(s => s.plugged.plugDef?.displayProperties?.name).filter(Boolean).slice(0, 8)

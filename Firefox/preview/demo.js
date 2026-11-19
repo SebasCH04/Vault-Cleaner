@@ -18,7 +18,7 @@
   Object.assign(grades[snap.items[6].id],{grade:'S',bestGrade:'S',currentGrade:'C'});
   Object.assign(grades[snap.items[13].id],{grade:'B-',bestGrade:'B-',currentGrade:'D'});
   // Illustrative armor rolls: a complete set, duplicates, distinct archetypes,
-  // unique tuning choices, legacy armor and a protected exotic.
+  // unique tuning choices, legacy armor and comparable exotic copies.
   const armorNames = ['Tecsec Mask','Tecsec Grips','Tecsec Vest','Tecsec Strides','Tecsec Cloak'];
   const armor = [];
   function addArmor(slot, overrides = {}) {
@@ -35,7 +35,11 @@
   addArmor(0,{armorData:{...armor[0].armorData,archetypeHash:201,archetypeName:'Brawler',base:[0,25,0,0,20,30],potential:[5,25,5,5,20,30]}});
   for (const tuned of ['weapons','super']) addArmor(0,{armorData:{...armor[0].armorData,tier:5,tuningOptions:[1,2,3],features:'tuning-'+tuned}});
   addArmor(2,{hash:900,name:'Legacy Vest',armorData:{...armor[0].armorData,complete:false,generation:2,tier:0,setHash:null,setName:'',archetypeHash:null,archetypeName:''}});
-  addArmor(1,{hash:901,name:'Exotic Gauntlets',exotic:true});
+  const exoticData = {...armor[0].armorData,tier:0,setHash:null,setName:'',exoticPerks:[[4,10001]],features:'cross-counter+standard-mod-slots'};
+  const exotic = {hash:901,name:'Exotic Gauntlets',exotic:true,perks:['Cross Counter'],armorData:exoticData};
+  addArmor(1,exotic); addArmor(1,exotic);
+  addArmor(1,{...exotic,armorData:{...exoticData,base:[28,0,0,18,23,0],potential:[28,5,5,18,23,5]}});
+  addArmor(1,{...exotic,armorData:{...exoticData,archetypeHash:201,archetypeName:'Brawler',base:[0,25,0,0,20,30],potential:[5,25,5,5,20,30]}});
   addArmor(3,{hash:902,name:'Other Set Strides',armorData:{...armor[0].armorData,setHash:101,setName:'Aion Renewal'}});
   snap.items.push(...armor);
   for (const character of snap.characters) for (const bucket of VaultCore.ARMOR_SLOTS) { character.capacity[bucket] = 10; character.occupied[bucket] = 1; }

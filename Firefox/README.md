@@ -8,7 +8,7 @@ A Firefox extension with Weapons and Armor panels inside DIM and an offline inte
 2. Open `about:debugging#/runtime/this-firefox` in Firefox.
 3. Remove the previous temporary Vault Cleaner extension, if installed.
 4. Click **Load Temporary Add-on** and select `manifest.json` in the extracted folder.
-5. Check version **0.2.0** in Firefox's extension details, then reload **DIM and light.gg** to replace their previous scripts. The panel itself does not show a version badge.
+5. Check version **0.2.1** in Firefox's extension details, then reload **DIM and light.gg** to replace their previous scripts. The panel itself does not show a version badge.
 6. Open DIM and click **Vault Cleaner** in the bottom-right corner.
 
 Temporary Firefox extensions must be loaded again after restarting Firefox. No Aegis extension is required. This package does not bundle Aegis.
@@ -50,10 +50,12 @@ Open **Armor** beside **Weapons**. Armor does not need light.gg syncing. Counts 
 - **Duplicates:** equivalent or strictly outclassed vault copies with a retained replacement. Use **Compare** to see all six base stats and the exact copy that remains.
 - **Keep:** distinct stat distributions, archetypes, tuning/mod options, set roles and highest-Power copies.
 - **Review:** legacy armor or incomplete comparison metadata. These never enter duplicate cleanup.
-- **Protected:** locked, favorite/keep/archive, loadout, exotic, equipped, unknown-state, postmaster or non-transferable copies.
+- **Protected:** locked, favorite/keep/archive, loadout, equipped, unknown-state, postmaster or non-transferable copies.
 - **All:** the whole armor inventory for the active filters.
 
-The first implementation deliberately compares matching item definitions, class, slot, set, archetype, tier, non-zero stat pattern and available tuning/mod features. It reads DIM's base stats, excluding equipped mods and current masterwork bonuses. A replacement must have equal or higher values in **every** base stat, no lower Power, and at least as much existing masterwork investment. Matching Armor 3.0 zero-stat patterns ensure their full-masterwork potential remains comparable. A higher total alone is insufficient. Unique tuning and mod access remain separate. It is not a full build optimizer.
+Duplicate cleanup compares matching item definitions, class, slot, set where applicable, archetype, tier, intrinsic perks, non-zero stat pattern and available tuning/mod features. It reads DIM's base stats, excluding equipped mods and current masterwork bonuses. A replacement must have equal or higher values in **every** base stat, no lower Power, and at least as much existing masterwork investment. Matching Armor 3.0 zero-stat patterns ensure their full-masterwork potential remains comparable. A higher total alone is insufficient. Unique tuning and mod access remain separate. It is not a full build optimizer.
+
+Exotic armor is not protected solely because it is exotic. Verified Armor 3.0 copies of the **same exotic** can become Duplicates without legendary set metadata, including DIM's untiered (`tier: 0`) exotics. They must match archetype, tier, intrinsic perks, stat pattern and tuning/mod access; a retained copy must meet every stat, Power and masterwork requirement above. Exotic class items require both intrinsic perk rolls to be verified, and different perk combinations remain separate. A singleton or a different stat tradeoff stays in Keep; legacy or incomplete exotic data stays in Review. Locks, favorites and loadouts still protect their exact copies. Compare displays the exotic's perks and retained instance.
 
 Set cards count distinct slots across the vault and characters, separately for each class. Five helmets do not form a complete set. Duplicate cleanup retains all owned slot coverage, including incomplete sets and alternate slots for exotic use. Set cards describe possible 2/4-piece bonuses, not currently active equipment. Event-selector/legacy pieces without identified set metadata remain in Review; their bonuses are not guessed.
 
@@ -105,6 +107,6 @@ Open `Vault-Cleaner-demo.html` from the ZIP. It contains sample weapons and armo
 
 Run `node --test tests/core.test.cjs tests/armor.test.cjs`. Browser fixtures require Playwright and a compatible Chromium binary; the included browser tests use `@sparticuz/chromium`. `tests/armor-browser.test.cjs` covers Armor UI and DIM-shaped armor metadata and native actions.
 
-Armor checks cover stable retained references, matching features, stat-wise dominance, distinct archetypes/tertiary stats/tuning/tier, incomplete metadata, legacy armor, exotic/loadout/lock protections, Power and masterwork investment, full/incomplete set coverage, class restrictions, 45 per-slot/total sizing, reserves, explicit manual selection, normalized DIM sockets and stats, missing-replacement blocking, exact STORE without EQUIP and confirmed capacity updates.
+Armor checks cover stable retained references, matching features, stat-wise dominance, distinct archetypes/tertiary stats/tuning/tier, incomplete metadata, legacy armor, setless and untiered exotic duplicates, distinct exotic class-item perks, exotic/loadout/lock protections, Power and masterwork investment, full/incomplete set coverage, class restrictions, 45 per-slot/total sizing, reserves, explicit manual selection, normalized DIM sockets and stats, missing-replacement blocking, exact STORE without EQUIP and confirmed capacity updates.
 
 Checks cover search with DIM-like global keyboard shortcuts, text editing and keyboard navigation, unchanged DIM shortcuts outside the panel, vault-only rank counts, updates during transfers, DIM store subscriptions, returning after in-game dismantling, automatic retry of cached-full capacity, unchanged/failed refreshes, real-full blocking, actual item locations, maximum-rank protections, exact IDs, per-slot and total batches, occupied/full slots, optional reserves, manual selection, mode changes, the responsive footer, Best Available capture, incremental scanner performance, seven-card numeric-perk-asset regression (five A and two B copies), genuine multi-copy rejection, and DIM STORE without EQUIP. Browser fixtures simulate DIM and light.gg; they do not validate a live Bungie transfer.

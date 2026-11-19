@@ -96,20 +96,25 @@
     if (item.locked !== false) out.push('Locked or unknown state');
     if (['favorite','keep','archive'].includes(item.tag)) out.push('Favorite / keep / archive');
     if (item.inLoadout) out.push('In a loadout');
-    if (item.exotic) out.push('Exotic');
     if (item.equipped !== false) out.push('Equipped or unknown state');
     if (item.postmaster || item.notransfer) out.push('Not transferable');
     return out;
   }
   function armorGroup(item) {
     const a = item.armorData;
+    const exotic = Boolean(item.exotic);
     if (!a?.complete || !normalizeId(item.id) || !ARMOR_SLOTS.includes(item.bucket) || ![0,1,2].includes(a.classType) ||
         !Array.isArray(a.base) || a.base.length !== 6 || !a.base.every(v => Number.isInteger(v) && v >= 0) ||
-        !a.setHash || !a.archetypeHash || !Number.isInteger(a.tier) || a.tier < 1 || a.tier > 5 ||
+        (!exotic && !a.setHash) || !a.archetypeHash || !Number.isInteger(a.tier) || a.tier < (exotic ? 0 : 1) || a.tier > 5 ||
         typeof a.features !== 'string' || !a.features || !Number.isInteger(a.masterwork) || a.masterwork < 0 || a.masterwork > 5 || !item.hash) return null;
+    // Exotics do not require a legendary set bonus. Their actual intrinsic
+    // perks must be verified, especially both rolls on exotic class items.
+    if (exotic && (a.generation !== 3 || !Array.isArray(a.exoticPerks) ||
+        a.exoticPerks.length < (item.bucket === ARMOR_SLOTS[4] ? 2 : 1) ||
+        !a.exoticPerks.every(p=>Array.isArray(p) && p.length === 2 && Number.isInteger(p[0]) && p[0] >= 0 && Number.isInteger(p[1]) && p[1] > 0))) return null;
     // Same item definition as well as matching features. Different tuning,
     // mod access, stat distributions or legacy armor are never interchangeable.
-    return JSON.stringify([item.hash,item.bucket,a.classType,a.setHash,a.archetypeHash,a.tier,a.features,
+    return JSON.stringify([item.hash,exotic,item.bucket,a.classType,a.setHash || null,a.archetypeHash,a.tier,a.features,exotic ? a.exoticPerks : [],
       a.base.map((v,index)=>v > 0 ? index : null).filter(v=>v !== null)]);
   }
   function armorAnalysis(items) {

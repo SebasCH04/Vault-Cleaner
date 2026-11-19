@@ -6,6 +6,8 @@ const item = (n, changes={}) => ({id:String(6917530200300900000n+BigInt(n)),hash
   armorData:{complete:true,classType:1,tier:4,setHash:100,setName:'Set A',archetypeHash:200,
     base:[30,0,0,20,25,0],potential:[30,5,5,20,25,5],masterwork:0,features:'mods+tuning-A'},...changes});
 const data = (n, changes)=>item(n,{armorData:{...item(n).armorData,...changes}});
+const exotic = (n, changes={}, armorChanges={})=>item(n,{exotic:true,hash:700,...changes,
+  armorData:{...item(n).armorData,generation:3,tier:0,setHash:null,setName:'',exoticPerks:[[4,777]],...armorChanges}});
 const target = {id:'hunter',classType:1,capacity:Object.fromEntries(C.ARMOR_SLOTS.map(b=>[b,10])),occupied:Object.fromEntries(C.ARMOR_SLOTS.map(b=>[b,1]))};
 test('Identical copies keep one deterministic anchor; all discarded copies point to it',()=>{
   const items=[item(1),item(2),item(3)]; const a=C.armorAnalysis(items);
@@ -36,9 +38,46 @@ test('Unknown and legacy data never become cleanup candidates',()=>{
   }
   const invalid=item(2,{id:'600'});assert.equal(C.armorAnalysis([item(1),invalid]).records[invalid.id].state,'review');
 });
-test('Locks, favorites, exotics, loadouts, unknown states and special locations remain protected',()=>{
-  for(const delta of [{locked:true},{locked:undefined},{tag:'favorite'},{tag:'keep'},{tag:'archive'},{exotic:true},{inLoadout:true},{equipped:true},{equipped:undefined},{postmaster:true},{notransfer:true}]) {
+test('Locks, favorites, loadouts, unknown states and special locations remain protected',()=>{
+  for(const delta of [{locked:true},{locked:undefined},{tag:'favorite'},{tag:'keep'},{tag:'archive'},{inLoadout:true},{equipped:true},{equipped:undefined},{postmaster:true},{notransfer:true}]) {
     const protectedItem=item(2,delta);assert.equal(C.armorAnalysis([item(1),protectedItem]).records[protectedItem.id].state,'protected');
+  }
+});
+test('Setless exotics, including untiered Armor 3.0, keep one copy and admit only verified redundant rolls',()=>{
+  for(const tier of [0,5]) {
+    const kept=exotic(1,{}, {tier}),same=exotic(2,{}, {tier}),lower=exotic(3,{}, {tier,base:[28,0,0,18,23,0]});
+    const items=[lower,same,kept],a=C.armorAnalysis(items);
+    assert.equal(a.records[kept.id].state,'keep');
+    for(const i of [same,lower]) assert.equal(a.records[i.id].keeperId,kept.id);
+    assert.equal(a.sets.length,0);
+    const plan=C.planBatch(items,{},items.map(i=>i.id),target,[],9,false,'clean','slot','armor');
+    assert.deepEqual(plan.batch.map(i=>i.id),[lower.id,same.id]);assert.deepEqual(plan.keeperIds,[kept.id]);
+  }
+});
+test('Exotic archetypes, tuning, intrinsic perks and tradeoff rolls remain separate',()=>{
+  const kept=exotic(1),variants=[exotic(2,{}, {archetypeHash:201}),exotic(3,{}, {features:'different tuning'}),
+    exotic(4,{}, {exoticPerks:[[4,778]]}),exotic(5,{}, {base:[31,0,0,19,25,0]}),exotic(6,{hash:701}),
+    exotic(7,{}, {tier:5}),exotic(8,{}, {base:[30,20,0,0,25,0]})];
+  assert.ok(Object.values(C.armorAnalysis([kept,...variants]).records).every(r=>r.state==='keep'));
+});
+test('Exotic class-item perk combinations require both verified perks',()=>{
+  const opts={bucket:C.ARMOR_SLOTS[4]},perks=[[4,777],[5,888]];
+  const kept=exotic(1,opts,{exoticPerks:perks}),duplicate=exotic(2,opts,{exoticPerks:perks});
+  const variant=exotic(3,opts,{exoticPerks:[[4,777],[5,889]]}),incomplete=exotic(4,opts,{exoticPerks:[[4,777]]});
+  const a=C.armorAnalysis([kept,duplicate,variant,incomplete]);
+  assert.equal(a.records[duplicate.id].keeperId,kept.id);assert.equal(a.records[variant.id].state,'keep');
+  assert.equal(a.records[incomplete.id].state,'review');
+});
+test('Exotic locks and loadouts remain protected and can anchor redundant unlocked vault copies',()=>{
+  for(const delta of [{locked:true},{tag:'favorite'},{inLoadout:true},{owner:'hunter',equipped:true}]) {
+    const kept=exotic(1,delta),same=exotic(2),a=C.armorAnalysis([same,kept]);
+    assert.equal(a.records[kept.id].state,'protected');assert.equal(a.records[same.id].keeperId,kept.id);
+  }
+});
+test('Legacy or incomplete exotic metadata stays in Review and cannot justify dismantling a copy',()=>{
+  for(const delta of [{generation:2},{complete:false},{exoticPerks:[]},{exoticPerks:[[4,null]]},{tier:null},{archetypeHash:null}]) {
+    const unknown=exotic(2,{},delta),kept=exotic(1),a=C.armorAnalysis([kept,unknown]);
+    assert.equal(a.records[unknown.id].state,'review');assert.equal(a.records[kept.id].state,'keep');
   }
 });
 test('Postmaster and non-transferable copies cannot be the surviving replacement',()=>{
