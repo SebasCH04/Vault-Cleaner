@@ -96,9 +96,9 @@
     let fresh = snapshot();
     if (!fresh.canTransfer || fresh.accountKey !== plan.accountKey) throw new Error('La cuenta o la conexión de DIM cambió. Actualiza el inventario.');
     const item = fresh.items.find(i => i.id === itemId);
-    if (!item || !C.eligible(item, plan.grades, plan.categories)) throw new Error('Esta arma cambió o ahora está protegida.');
+    if (!item || !C.canSelect(item, plan.grades, plan.categories, plan.mode)) throw new Error('Esta arma cambió o no puede trasladarse en este modo.');
     const target = fresh.characters.find(c => c.id === targetId);
-    if (!C.planBatch(fresh.items, plan.grades, [itemId], target, plan.categories, 1, plan.reserve).batch.length) throw new Error('No queda espacio libre en la ranura de destino.');
+    if (!C.planBatch(fresh.items, plan.grades, [itemId], target, plan.categories, 1, plan.reserve, plan.mode).batch.length) throw new Error('No queda espacio libre en la ranura de destino.');
     let tile = document.getElementById(itemId);
     if (!tile || !tile.classList.contains('item')) {
       search([itemId]);
@@ -111,7 +111,7 @@
     // Recheck immediately before native DIM action. No equipment action is called.
     fresh = snapshot();
     if (!fresh.canTransfer || fresh.accountKey !== plan.accountKey) throw new Error('La conexión o la cuenta cambió antes del traslado.');
-    if (!C.planBatch(fresh.items, plan.grades, [itemId], fresh.characters.find(c => c.id === targetId), plan.categories, 1, plan.reserve).batch.length) throw new Error('Esta arma o el espacio disponible cambió antes del traslado.');
+    if (!C.planBatch(fresh.items, plan.grades, [itemId], fresh.characters.find(c => c.id === targetId), plan.categories, 1, plan.reserve, plan.mode).batch.length) throw new Error('Esta arma o el espacio disponible cambió antes del traslado.');
     if (stopped) throw new Error('Tanda detenida.');
     mover();
     await waitFor(() => snapshot().items.find(i => i.id === itemId && i.owner === targetId && i.equipped === false), 30000);
@@ -130,10 +130,11 @@
         const snap = snapshot();
         if (!snap.canTransfer) throw new Error(snap.warnings.join(' '));
         const target = snap.characters.find(c => c.id === payload.targetId);
-        const result = C.planBatch(snap.items, payload.grades || {}, payload.ids || [], target, payload.categories || [], payload.limit, payload.reserve);
+        const mode = payload.mode === 'manual' ? 'manual' : 'clean';
+        const result = C.planBatch(snap.items, payload.grades || {}, payload.ids || [], target, payload.categories || [], payload.limit, payload.reserve, mode);
         if (!result.batch.length) throw new Error('No hay candidatos con espacio disponible para esta tanda.');
-        prepared = { ...payload, ids: result.batch.map(i => i.id), accountKey: snap.accountKey, token: crypto.randomUUID(), expires: Date.now() + 120000 };
-        emit('reply', { requestId, data: { token: prepared.token, batch: result.batch, target, skipped: result.skipped } }); return;
+        prepared = { ...payload, mode, ids: result.batch.map(i => i.id), accountKey: snap.accountKey, token: crypto.randomUUID(), expires: Date.now() + 120000 };
+        emit('reply', { requestId, data: { token: prepared.token, batch: result.batch, target, skipped: result.skipped, counts: result.counts, mode } }); return;
       }
       if (action === 'transfer') {
         const plan = prepared; prepared = null;

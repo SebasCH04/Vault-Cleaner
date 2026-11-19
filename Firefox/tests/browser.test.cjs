@@ -15,8 +15,8 @@ const root = path.resolve(__dirname,'..');
   await page.locator('#app').locator('#total').waitFor();
   await page.waitForFunction(()=>document.querySelector('#app').shadowRoot.getElementById('total').textContent==='18');
   assert.equal(await page.locator('#candidates').textContent(),'6');
-  assert.deepEqual(await page.locator('#tabs button').allTextContents(),['Candidatas','Protegidas','Sin nota','Todas']);
-  assert.equal(await page.locator('th').nth(2).textContent(),'Rango');
+  assert.deepEqual(await page.locator('#tabs button').allTextContents(),['Candidatas','Protegidas','Sin máximo','Todas']);
+  assert.equal(await page.locator('th').nth(2).textContent(),'Máximo');
   assert.equal(await page.locator('#rated').textContent(),'15');
   assert.equal(await page.locator('[data-improve]').count(),0);
   assert.ok(!(await page.locator('#app').textContent()).includes('Para leer el máximo'));
@@ -24,12 +24,12 @@ const root = path.resolve(__dirname,'..');
   await page.screenshot({path:path.resolve(root,'../browser-panel-check.png'),fullPage:true});
   await page.locator('#select-visible').click();
   assert.equal(await page.locator('#selected-count').textContent(),'6');
-  await page.locator('#limit').fill('2');
+  await page.locator('#limit').fill('1');
   await page.locator('#prepare').click();
-  assert.match(await page.locator('#review-title').textContent(),/^2 armas/);
+  assert.match(await page.locator('#review-title').textContent(),/^3 armas/);
   await page.locator('#confirm-plan').click();
-  await page.waitForFunction(()=>document.querySelector('#app').shadowRoot.getElementById('status').textContent.includes('2 arma(s) trasladada(s)'));
-  assert.equal(await page.locator('#candidates').textContent(),'4');
+  await page.waitForFunction(()=>document.querySelector('#app').shadowRoot.getElementById('status').textContent.includes('3 arma(s) trasladada(s)'));
+  assert.equal(await page.locator('#candidates').textContent(),'3');
   console.log('PASS preview: grade filters, select, review, size limit, simulated transfer and refreshed candidates');
   await page.locator('[data-view=ungraded]').click();
   assert.equal(await page.locator('#rows tr').count(),3);
@@ -72,7 +72,7 @@ const root = path.resolve(__dirname,'..');
   assert.equal(snap.items.length,2);assert.equal(snap.canTransfer,true);
   const result=await page.evaluate(async()=>{
     const ids=['6917530200300167753','6917530200300167754'];
-    const grades=Object.fromEntries(ids.map(id=>[id,{grade:'F',at:Date.now()}]));
+    const grades=Object.fromEntries(ids.map(id=>[id,{grade:'F',bestGrade:'F',at:Date.now()}]));
     const plan=await rpc('prepare',{ids,grades,categories:['F'],targetId:'character',limit:2,reserve:true});
     return rpc('transfer',{token:plan.token});
   });
@@ -88,6 +88,21 @@ const root = path.resolve(__dirname,'..');
   });
   assert.equal(blocked.snap.canTransfer,false);assert.equal(blocked.blocked,true);
   console.log('PASS DIM bridge: missing protection data prevents preparation');
+  // Manual mode explicitly bypasses cleanup grade/protection filters, while only
+  // calling STORE for the selected exact copy and keeping its lock untouched.
+  await page.evaluate(()=>{
+    const target=state.inventory.stores.find(s=>!s.isVault),vault=state.inventory.stores.find(s=>s.isVault);
+    const item=target.items.shift();item.owner='vault';item.locked=true;item.rarity='Exotic';vault.items.push(item);
+    state.dimApi.profileLoaded=true;
+  });
+  const manual=await page.evaluate(async()=>{
+    const id=state.inventory.stores.find(s=>s.isVault).items[0].id;
+    const plan=await rpc('prepare',{ids:[id],grades:{},categories:[],mode:'manual',targetId:'character',limit:9,reserve:false});
+    return rpc('transfer',{token:plan.token});
+  });
+  assert.equal(manual.moved,1);assert.ok(manual.snapshot.items.find(i=>i.locked && i.exotic)?.owner==='character');
+  assert.ok((await page.evaluate(()=>calls)).every(c=>c.type==='store'&&c.equip===false));
+  console.log('PASS manual DIM bridge: chosen exotic/locked copy without grade transferred through STORE with its lock retained');
   // DOM capture rejects a container shared by two instance IDs.
   await page.setContent('<div data-id="6917530200300167753"><img class="quality" title="Popularity (D)"></div><div data-id="6917530200300167754"><img class="quality" title="Popularity (A)"></div><div data-id="6917530200300167755"><span data-id="6917530200300167756"></span><img class="quality" title="Popularity (F)"></div>');
   await page.addScriptTag({path:root+'/core.js'});

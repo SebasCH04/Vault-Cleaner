@@ -10,19 +10,21 @@
     items: names.map((name, i) => ({ id: String(6917530200000000000n + BigInt(i)), hash: i+1, name, type: types[i], bucket: ['kinetic','energy','power'][i % 3], bucketName: ['Cinética','Energía','Potencia'][i % 3], owner: 'vault', ownerName: 'Vault', weapon: true, locked: i === 9, equipped: false, tag: i === 10 ? 'favorite' : '', inLoadout: i === 11, exotic: i >= 15, crafted: i === 14, deepsight: false, notransfer: false, postmaster: false, power: 550, perks: perks[i % perks.length] })),
     characters: [
       { id: 'hunter', name: 'Cazador · activo', current: true, isVault: false, capacity: { kinetic:10, energy:10, power:10 }, occupied: { kinetic:5, energy:6, power:7 } },
-      { id: 'warlock', name: 'Hechicero', current: false, isVault: false, capacity: { kinetic:10, energy:10, power:10 }, occupied: { kinetic:3, energy:3, power:3 } }
+      { id: 'warlock', name: 'Hechicero', current: false, isVault: false, capacity: { kinetic:10, energy:10, power:10 }, occupied: { kinetic:1, energy:1, power:1 } }
     ]
   };
   const grades = {};
-  snap.items.forEach((item, i) => { if (letters[i]) grades[item.id] = { grade: letters[i], basis: 'displayed', at: now, source: 'demo' }; });
+  snap.items.forEach((item, i) => { if (letters[i]) grades[item.id] = { grade: letters[i], bestGrade:letters[i], currentGrade:letters[i], basis: 'best', at: now, source: 'demo' }; });
+  Object.assign(grades[snap.items[6].id],{grade:'S',bestGrade:'S',currentGrade:'C'});
+  Object.assign(grades[snap.items[13].id],{grade:'B-',bestGrade:'B-',currentGrade:'D'});
   let plan = null, progress = () => {}, stopped = false;
   const adapter = {
     snapshot: async () => structuredClone(snap), grades: async () => structuredClone(grades),
     prepare: async payload => {
       const target = snap.characters.find(c => c.id === payload.targetId);
-      const result = VaultCore.planBatch(snap.items, grades, payload.ids, target, payload.categories, payload.limit, payload.reserve);
+      const result = VaultCore.planBatch(snap.items, grades, payload.ids, target, payload.categories, payload.limit, payload.reserve, payload.mode);
       if (!result.batch.length) throw new Error('No hay espacio libre para esta tanda.');
-      plan = { ...payload, batch: result.batch, token: crypto.randomUUID(), target };
+      plan = { ...payload, ...result, token: crypto.randomUUID(), target };
       return structuredClone(plan);
     },
     transfer: async token => {

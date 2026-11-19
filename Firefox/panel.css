@@ -4,3 +4,7 @@
 .app .intro{display:none}.standalone .app .intro{display:block}
 
 .tabs{flex-wrap:wrap}
+
+.mode-picker{display:flex;gap:12px;align-items:center;margin-bottom:12px}.mode-picker .field{min-width:170px}.mode-picker select{background:#222d32;color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:7px;display:block;width:100%;margin-top:4px}.mode-picker p{font-size:10px;margin:0;line-height:1.5}.rank-detail{display:block;font-size:10px;color:var(--muted);margin-top:4px}.destination{grid-template-columns:minmax(130px,1fr) 105px}.standalone .destination{grid-template-columns:1fr 95px}@media(max-width:500px){.mode-picker{display:block}.mode-picker p{margin-top:7px}}
+
+.review-list .badge{align-self:center;flex-shrink:0}
